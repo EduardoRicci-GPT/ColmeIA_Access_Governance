@@ -1,0 +1,35 @@
+{
+  "//": [
+    "PROVA DE PUREZA DO NÚCLEO DE ACESSO.",
+    "",
+    "Mesma disciplina do packages/mpeh-kernel da Aletheia: a lib DOM NÃO entra e",
+    "'types': [] exclui os tipos do Node. Se qualquer motor deste produto tocar",
+    "em `window`, `localStorage`, `process` ou `fs`, este projeto falha a",
+    "compilar.",
+    "",
+    "O motivo é operacional, não estético. Estes motores precisam rodar em três",
+    "lugares: no servidor que reconcilia, no navegador que mostra o painel e no",
+    "gateway de borda que continuará decidindo quando a nuvem cair. Um `Date.now()`",
+    "escondido num motor puro seria descoberto no terceiro desses lugares, tarde.",
+    "",
+    "As ferramentas de linha de comando (ferramentas/, testes/) ficam FORA deste",
+    "projeto de propósito: elas leem disco, e devem."
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": [],
+    "strict": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "noUnusedLocals": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmit": true
+  },
+  "include": ["packages/**/*.ts"]
+}
