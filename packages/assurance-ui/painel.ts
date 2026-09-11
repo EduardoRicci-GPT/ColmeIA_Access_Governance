@@ -17,6 +17,7 @@ import { EscalationCase } from '../dominio/escalonamento';
 import { NivelDeRisco, ORDEM_DE_RISCO } from '../dominio/risco';
 import { NivelDeHierarquia, Topologia } from '../dominio/topologia';
 import { AccessGovernanceHealth, HealthComponent, somaDosComponentes } from '../observability-assurance/health';
+import { avisoDeSombra } from '../observability-assurance/calibragem';
 import { RelatorioDeAssurance } from '../observability-assurance/assurance';
 import { PhysicalReconciliationResult } from '../physical-state-reconciliation/tipos';
 import { LinhaDeResumo, resumirDivergencias } from '../narrativa/resumo';
@@ -70,6 +71,15 @@ export interface PainelDeAssurance {
   timelines: readonly LinhaDoTempo[];
   /** Total de itens que a tela declara NÃO saber. */
   incertezas: number;
+  /**
+   * Ressalva de calibragem, quando há peso em sombra.
+   *
+   * Fica no modelo de visão, e não num rodapé escrito à mão, porque é o tipo
+   * de aviso que desaparece na primeira redação de tela que alguém fizer com
+   * pressa. Aqui ele só some se alguém o remover do código, deliberadamente.
+   */
+  avisoDeCalibragem: string | null;
+  avisosDeCalibragem: readonly string[];
 }
 
 function cartao(health: AccessGovernanceHealth, paiId: string | null): CartaoDeEscopo {
@@ -128,7 +138,9 @@ export function montarPainel(
     resumo: resumirDivergencias(topologia, relatorio.filaDeRisco),
     casos: relatorio.casosAbertos,
     timelines,
-    incertezas: relatorio.filaDeRisco.filter((resultado) => resultado.confidence === 'UNKNOWN').length
+    incertezas: relatorio.filaDeRisco.filter((resultado) => resultado.confidence === 'UNKNOWN').length,
+    avisoDeCalibragem: avisoDeSombra(relatorio.arvore.calibragem),
+    avisosDeCalibragem: relatorio.arvore.calibragem.avisos
   };
 }
 

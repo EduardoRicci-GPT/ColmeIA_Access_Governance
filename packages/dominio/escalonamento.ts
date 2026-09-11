@@ -22,7 +22,15 @@ export type TipoDeEscalonamento =
   | 'PROVIDER_UNAVAILABLE'
   | 'POLICY_CONFLICT'
   | 'LATENCY_ANOMALY'
-  | 'UNKNOWN_PHYSICAL_STATE';
+  | 'UNKNOWN_PHYSICAL_STATE'
+  /**
+   * Zona de cuidado que ficaria sem ninguém com acesso ativo.
+   *
+   * É o único tipo desta lista que denuncia FALTA de direito, e não excesso.
+   * Todos os outros protegem contra a porta que abre para quem não deveria;
+   * este protege contra a porta que não abre para quem precisa.
+   */
+  | 'COVERAGE_GAP';
 
 export interface EscalationCase {
   id: string;

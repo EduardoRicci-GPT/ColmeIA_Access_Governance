@@ -1,0 +1,85 @@
+{
+  "schema": "ColmeIA-MpehKernelSnapshot-v1",
+  "kernel": "MPE-H kernel (Ledger · HumanGate · Calibration)",
+  "copiadoEm": "2026-09-11",
+  "origem": {
+    "repositorio": "EduardoRicci-GPT/Aletheia",
+    "caminho": "packages/mpeh-kernel/",
+    "commit": "1b66dc96abd6ff1412f7ce20cd0d794e800863af"
+  },
+  "porQueEste": "O aplicativo de controle de acesso deriva da Aletheia porque a decisao de liberar uma area ou um locker e um cruzamento 360 de hierarquia, horario, agenda e local — exatamente o que o MPE-H com R-VEP faz. Copiar o kernel, em vez de reescrever um motor proprio, e o que garante que as duas frentes decidam pelo mesmo criterio.",
+  "porQueCopiaEnaoImport": "O destino declarado e rodar DENTRO de aplicativos de gestao hospitalar. Um produto embarcavel nao pode depender do checkout de outro repositorio para compilar. A copia torna esta subarvore autossuficiente, ao custo de exigir sincronia deliberada.",
+  "estatuto": "ESPELHO_SOMENTE_LEITURA",
+  "regra": "Estes arquivos NAO devem ser editados aqui. Sao espelho do kernel da Aletheia. Correcao vai para a origem e volta por nova copia com novos hashes. Editar a copia faz as duas frentes divergirem em silencio, que e o defeito que o manifesto existe para impedir.",
+  "oQueNaoFoiCopiado": {
+    "engine/": "O snapshot selado do R-VEP (mpe_rvep_legacy.py) NAO foi copiado. Ele e um espelho bit-a-bit do corpus MPEH sob regra propria, e exige Python no host. O radar entra aqui por PORTA (LeitorDeContexto360), nao por copia.",
+    "wsg/": "Quarto pacote da ordem do guia; ainda nao extraido na origem."
+  },
+  "arquivos": [
+    {
+      "caminho": "calibration/lint.ts",
+      "sha256": "b4e0417c4eaa72f03d165706ca6cc240505e42b0257ec096a478889c09a01838",
+      "bytes": 8585
+    },
+    {
+      "caminho": "calibration/registro.ts",
+      "sha256": "8bdc0a864077934ff2d17ab517283aabbbf25e05c888a3e7c6e8134787c0c43e",
+      "bytes": 5145
+    },
+    {
+      "caminho": "calibration/tipos.ts",
+      "sha256": "1d096e741a11eaf635c638a61c09d3a4855f7d2def5805c7a87e40fe0bdc77a9",
+      "bytes": 3849
+    },
+    {
+      "caminho": "human-gate/gate.ts",
+      "sha256": "35d4c79e3bb8aced20e10b83be97dfe070d90a2c53dab6bb4c6e25a0373dd5cf",
+      "bytes": 6909
+    },
+    {
+      "caminho": "human-gate/tipos.ts",
+      "sha256": "ebb173e03370c7353e6e45fc1714f1c48f237ec66875a3358546762496041e3c",
+      "bytes": 3644
+    },
+    {
+      "caminho": "ledger/CONTRATO.md",
+      "sha256": "4167cfff2dc8e980edc68408a09565cdedb10ff81f89ce16c94785afdc8235f8",
+      "bytes": 4371
+    },
+    {
+      "caminho": "ledger/adaptadores/memoria.ts",
+      "sha256": "2ad27d13048e7561367379f257197784af8c3452949f63e95bedbca8b5dd7f0d",
+      "bytes": 2214
+    },
+    {
+      "caminho": "ledger/ambiente.d.ts",
+      "sha256": "e3eeb0c2f1339d17800d9637646bfa1555e0729ca358520b60dd02c80dc84ae3",
+      "bytes": 982
+    },
+    {
+      "caminho": "ledger/cadeia.ts",
+      "sha256": "7a4cf7b449fcf330c675b94ca317ac74a4738d8ad04014d3b152fc096144a5c1",
+      "bytes": 5039
+    },
+    {
+      "caminho": "ledger/conformidade.ts",
+      "sha256": "48cfd16479ca1509a63b59e8767bde9334041df559b915cdda73cbf9f34a981b",
+      "bytes": 8660
+    },
+    {
+      "caminho": "ledger/ledger.ts",
+      "sha256": "a25bdb558d0416b3dc52d17483199f1a987bdf16555f68016d9a140f7ead9c97",
+      "bytes": 3679
+    },
+    {
+      "caminho": "ledger/postgres/esquema.sql",
+      "sha256": "dc9608a3f95fb4c8a52edfe6963ee77515f389ef3a6e28b3ecdddc2c63d77937",
+      "bytes": 7369
+    },
+    {
+      "caminho": "ledger/tipos.ts",
+      "sha256": "cb73c3534769369e89c1be585b2ebd6013e26a0a194a02746baf8297ba8d77c0",
+      "bytes": 4594
+    }
+  ]
+}

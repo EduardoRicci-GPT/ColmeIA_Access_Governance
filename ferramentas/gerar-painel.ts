@@ -13,7 +13,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { montarBancada, tick } from '../testes/bancada';
+import { aprovarCofre, materialDoCofre, montarBancada, tick } from '../testes/bancada';
 import { construirLinhaDoTempo } from '../packages/assurance-ui/timeline';
 import { montarPainel } from '../packages/assurance-ui/painel';
 import { renderizarPainel } from '../packages/assurance-ui/render';
@@ -23,8 +23,11 @@ const destino = path.resolve(process.argv[2] ?? path.join(raiz, '.saida', 'paine
 
 const bancada = montarBancada();
 
-// 08:00 — o turno começa. Direitos concedidos e materializados.
-await tick(bancada);
+// 08:00 — o turno começa. O cofre CRITICAL entra na fila de aprovação e só
+// é materializado depois de duas assinaturas contra o material selado.
+const primeiro = await tick(bancada);
+await aprovarCofre(bancada, materialDoCofre(primeiro));
+await tick(bancada, 1_000);
 await tick(bancada, 3_000);
 
 // 08:17 — o gateway do bloco clínico cai. Farmácia e UTI ficam sem alcance.
@@ -56,10 +59,13 @@ await tick(bancada, 3 * 60_000);
 // 09:50 — noventa minutos depois, nada foi confirmado. O risco amadurece.
 const relatorio = await tick(bancada, 90 * 60_000);
 
-const timelines = ['CRED-vin-marina-ep-farm-2', 'CRED-vin-rui-ep-seg-1'].map((credencial) => {
+const integridade = await bancada.trilha.verificarIntegridade();
+const timelines = [];
+for (const credencial of ['CRED-vin-marina-ep-farm-2', 'CRED-vin-rui-ep-seg-1']) {
   const endpointId = credencial.endsWith('ep-seg-1') ? 'ep-seg-1' : 'ep-farm-2';
-  return construirLinhaDoTempo(credencial, bancada.auditoria.trilha(`COR::${endpointId}::${credencial}`));
-});
+  const elos = await bancada.trilha.trilhaDe(`COR::${endpointId}::${credencial}`);
+  timelines.push(construirLinhaDoTempo(credencial, elos, integridade));
+}
 
 const painel = montarPainel(bancada.mundo.topologia, relatorio.assurance, timelines);
 const html = renderizarPainel(painel, { documentoCompleto: true });
@@ -77,4 +83,9 @@ console.log(`  Escopos avaliados: ${painel.escopos.length}`);
 console.log(`  Divergências na fila: ${painel.filaDeRisco.length}`);
 console.log(`  Itens sem evidência física: ${painel.incertezas}`);
 console.log(`  Casos de escalonamento abertos: ${painel.casos.length}`);
+console.log(
+  `  Cadeia de auditoria: ${integridade.total} elo(s), ${integridade.integra ? 'ÍNTEGRA' : 'ROMPIDA'}`
+);
+console.log(`  Calibragem: ${painel.avisoDeCalibragem ?? 'todos os pesos instrumentados'}`);
+console.log(`  Freio da parceria: ${relatorio.freio.decisao} — ${relatorio.freio.motivo}`);
 for (const linha of painel.resumo) console.log(`  · ${linha.texto}`);

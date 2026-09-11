@@ -24,10 +24,19 @@
 // no lugar em que foi sabido.
 // ---------------------------------------------------------------------------
 
-import { EventoDeDominio, TipoDeEvento } from '../dominio/eventos';
+import { TipoDeEvento } from '../dominio/eventos';
+import { EloDeAuditoria } from '../auditoria/trilha';
+import { CorpoDeOrigem } from '../mpeh-kernel/ledger/tipos';
+import { VerdictoDeIntegridade } from '../mpeh-kernel/ledger/tipos';
 
 export interface EntradaDaTimeline {
   hora: string;
+  /** Posição na cadeia e selo do elo. É o que torna a linha verificável. */
+  sequencia: number;
+  hash: string;
+  /** Qual corpo respondeu por este fato (ADR-0003). */
+  corpo: CorpoDeOrigem;
+  autor: string;
   ocorridoEm: Date;
   tipo: TipoDeEvento;
   rotulo: string;
@@ -52,6 +61,14 @@ export interface LinhaDoTempo {
   entradas: readonly EntradaDaTimeline[];
   /** Intervalos em que houve divergência física conhecida. */
   janelasDeRisco: readonly JanelaDeRisco[];
+  /**
+   * Verdicto da cadeia inteira no momento em que a linha foi montada.
+   *
+   * Vai junto de propósito. Uma linha do tempo exibida sem dizer se a cadeia
+   * que a sustenta está íntegra é uma narrativa, não uma evidência — e a
+   * diferença entre as duas é tudo o que uma auditoria compra.
+   */
+  integridade?: VerdictoDeIntegridade;
 }
 
 const ROTULO: Readonly<Record<TipoDeEvento, string>> = Object.freeze({
@@ -69,6 +86,7 @@ const ROTULO: Readonly<Record<TipoDeEvento, string>> = Object.freeze({
   LatencyThresholdExceeded: 'Latência acima do limiar',
   AccessPolicyConflictDetected: 'Conflito de política detectado',
   HealthScoreChanged: 'Health Score alterado',
+  CoverageGapDetected: 'Zona de cuidado ficaria sem cobertura',
   AccessAttempted: 'Tentativa de acesso',
   EscalationOpened: 'Caso de escalonamento aberto',
   EscalationResolved: 'Caso de escalonamento encerrado'
@@ -95,12 +113,22 @@ const FECHA_RISCO: ReadonlySet<TipoDeEvento> = new Set<TipoDeEvento>([
 
 export function construirLinhaDoTempo(
   chave: string,
-  eventos: readonly EventoDeDominio[]
+  elos: readonly EloDeAuditoria[],
+  integridade?: VerdictoDeIntegridade
 ): LinhaDoTempo {
-  const ordenados = [...eventos].sort((a, b) => a.ocorridoEm.getTime() - b.ocorridoEm.getTime());
+  // Ordenado por quando ACONTECEU, não por posição na cadeia: evento atrasado
+  // aparece no lugar do fato. A sequência do ledger continua visível em cada
+  // entrada, para quem quiser conferir a ordem de REGISTRO.
+  const ordenados = [...elos].sort(
+    (a, b) => a.evento.ocorridoEm.getTime() - b.evento.ocorridoEm.getTime()
+  );
 
-  const entradas: EntradaDaTimeline[] = ordenados.map((evento) => ({
+  const entradas: EntradaDaTimeline[] = ordenados.map(({ evento, sequencia, hash, corpo, autor }) => ({
     hora: horaCompleta(evento.ocorridoEm),
+    sequencia,
+    hash,
+    corpo,
+    autor,
     ocorridoEm: evento.ocorridoEm,
     tipo: evento.tipo,
     rotulo: ROTULO[evento.tipo],
@@ -112,7 +140,7 @@ export function construirLinhaDoTempo(
 
   const janelas: JanelaDeRisco[] = [];
   let aberta: { em: Date; descricao: string; tipo: TipoDeEvento } | null = null;
-  for (const evento of ordenados) {
+  for (const { evento } of ordenados) {
     if (ABRE_RISCO.has(evento.tipo) && !aberta) {
       aberta = { em: evento.ocorridoEm, descricao: evento.resumo, tipo: evento.tipo };
       continue;
@@ -138,5 +166,5 @@ export function construirLinhaDoTempo(
     });
   }
 
-  return { chave, entradas, janelasDeRisco: janelas };
+  return { chave, entradas, janelasDeRisco: janelas, integridade };
 }

@@ -13,7 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import { fechar, grupo, igual, verificar } from './runner';
-import { montarBancada, tick } from './bancada';
+import { aprovarCofre, materialDoCofre, montarBancada, tick } from './bancada';
 import { resumirDivergencias } from '../packages/narrativa/resumo';
 
 async function h7(): Promise<void> {
@@ -157,17 +157,41 @@ async function h9(): Promise<void> {
 }
 
 async function h10(): Promise<void> {
-  grupo('H10 · endpoint de área crítica fica offline');
+  grupo('H10 · o cofre CRITICAL não abre sem duas assinaturas');
   const b = montarBancada();
-  await tick(b);
-  await tick(b, 3_000);
-
   const credencial = 'CRED-vin-rui-ep-seg-1';
+
+  const primeiro = await tick(b);
+  const material = materialDoCofre(primeiro);
+  verificar('o acesso ao cofre entrou na fila de aprovação', material.endpointId === 'ep-seg-1');
+  igual('e NÃO foi materializado', b.registros.obter(credencial), undefined);
+
+  // Uma assinatura só não basta: criticidade CRITICA exige duas pessoas
+  // distintas, que é a defesa do kernel contra a fadiga de plantão.
+  await b.gate.abrir(material, 'ciclo-de-governanca');
+  const comUma = await b.gate.decidir(material, {
+    decisao: 'APROVADO',
+    aprovador: 'rita.diretoria',
+    papel: 'diretoria-tecnica',
+    justificativa: 'Primeira aprovação.',
+    assinatura: 'token-rita'
+  });
+  verificar('uma assinatura não autoriza', !comUma.autorizado, comUma.motivo);
+  igual('e o motivo é nomeado', comUma.motivo, 'APROVACOES_INSUFICIENTES');
+
+  const comDuas = await aprovarCofre(b, material);
+  verificar('duas assinaturas autorizam', comDuas.autorizado, comDuas.explicacao);
+  igual('e a segunda é de outra pessoa', comDuas.registro.aprovadores.length, 2);
+
+  await tick(b, 60_000);
+  await tick(b, 3_000);
   igual(
-    'o cofre de psicotrópicos exigiu aprovação humana, que existe',
+    'agora o acesso ao cofre foi materializado e confirmado',
     b.registros.obter(credencial)?.estado.lastConfirmedState,
     'DEVICE_GRANT_CONFIRMED'
   );
+
+  grupo('H10 · endpoint de área crítica fica offline');
 
   // A porta da área de segurança excepcional perde comunicação, e o supervisor
   // é desligado no mesmo dia.
@@ -195,10 +219,22 @@ async function h10(): Promise<void> {
   verificar('a ação escalou para decisão humana', recon?.action === 'ESCALATE', recon?.action);
   verificar('e a contingência foi registrada como caso', b.assurance.casosAbertos().length >= 1);
 
-  const caso = b.assurance.casosAbertos()[0];
+  const caso = b.assurance.casosAbertos().find((c) => c.type === 'REVOCATION_NOT_CONFIRMED');
   igual('o caso tem severidade CRITICAL', caso?.severity, 'CRITICAL');
-  igual('e tipo de revogação não confirmada', caso?.type, 'REVOCATION_NOT_CONFIRMED');
   verificar('com evidência associada', (caso?.evidencias.length ?? 0) > 0);
+
+  grupo('H10 · o outro lado do risco: a zona fica sem ninguém');
+  // Desligar o supervisor de segurança deixa a Área de Segurança Excepcional
+  // sem NINGUÉM capaz de entrar. O freio da parceria vê o que a tabela de
+  // regras não vê: aqui, faltar direito também é risco físico.
+  const lacuna = b.assurance.casosAbertos().find((c) => c.type === 'COVERAGE_GAP');
+  verificar('o freio abriu caso de lacuna de cobertura', lacuna !== undefined);
+  igual('com severidade CRITICAL, pela criticidade da zona', lacuna?.severity, 'CRITICAL');
+  verificar(
+    'e o motivo diz que a revogação segue, e que a escala é decisão humana',
+    lacuna?.reason.includes('A revogação segue') === true,
+    lacuna?.reason
+  );
 
   grupo('H10 · o alerta legível nomeia lugar, contagem e causa');
   const resumo = resumirDivergencias(b.mundo.topologia, relatorio.reconciliacoesFisicas);

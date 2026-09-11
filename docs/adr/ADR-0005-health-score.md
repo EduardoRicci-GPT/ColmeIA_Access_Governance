@@ -1,6 +1,6 @@
 # ADR-0005 — Health Score derivado dos componentes, proporcional para disponibilidade e absoluto para divergência
 
-- **Estado:** aceito
+- **Estado:** aceito; complementado pelo ADR-0013 (os pesos passam a declarar estatuto)
 - **Data:** 2026-09-11
 
 ## Contexto

@@ -1,6 +1,6 @@
 # ADR-0009 — Aprovação humana não é presumida
 
-- **Estado:** aceito
+- **Estado:** substituído por ADR-0012 — a correção estava certa, a estrutura não
 - **Data:** 2026-09-11
 - **Origem:** defeito encontrado ao escrever o cenário H10
 

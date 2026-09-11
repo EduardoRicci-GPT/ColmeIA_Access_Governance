@@ -20,7 +20,8 @@
 import { Endpoint, NoDeHierarquia, StatusDeConectividade, Topologia, endpointsSob } from '../dominio/topologia';
 import { DiagnosticoDeLatencia } from '../dominio/telemetria';
 import { PhysicalReconciliationResult } from '../physical-state-reconciliation/tipos';
-import { AccessGovernanceHealth, EvidenciasDeHealth, PesosDeHealth, PESOS_PADRAO, calcularHealth } from './health';
+import { AccessGovernanceHealth, EvidenciasDeHealth, calcularHealth } from './health';
+import { PesosLidos, lerPesos } from './calibragem';
 import { calcularIndicadores } from './indicadores';
 
 export interface EntradaDaHierarquia {
@@ -34,7 +35,14 @@ export interface EntradaDaHierarquia {
   backlogDeSincronizacaoPorEndpoint?: ReadonlyMap<string, number>;
   bateriasCriticasPorEndpoint?: ReadonlySet<string>;
   calculatedAt: Date;
-  pesos?: PesosDeHealth;
+  /**
+   * Pesos lidos pela porta de calibragem, com os avisos que vêm junto.
+   *
+   * Não é `PesosDeHealth` puro de propósito: passar só os números permitiria
+   * calcular o score sem carregar o estatuto deles, que é exatamente o que o
+   * pacote Calibration existe para impedir.
+   */
+  calibragem?: PesosLidos;
 }
 
 export interface ArvoreDeHealth {
@@ -43,6 +51,8 @@ export interface ArvoreDeHealth {
   raiz: AccessGovernanceHealth;
   /** Escopos ordenados do pior para o melhor score — a ordem que a tela usa. */
   ordenadosPorRisco: readonly AccessGovernanceHealth[];
+  /** O estatuto dos pesos que produziram estes números. Viaja com eles. */
+  calibragem: PesosLidos;
 }
 
 function evidenciasDoEscopo(
@@ -70,7 +80,8 @@ function evidenciasDoEscopo(
 
 export function calcularArvoreDeHealth(entrada: EntradaDaHierarquia): ArvoreDeHealth {
   const porEscopo = new Map<string, AccessGovernanceHealth>();
-  const pesos = entrada.pesos ?? PESOS_PADRAO;
+  const calibragem = entrada.calibragem ?? lerPesos();
+  const pesos = calibragem.pesos;
 
   const escoposDeNo: readonly NoDeHierarquia[] = entrada.topologia.nos;
   const escoposDeEndpoint: readonly NoDeHierarquia[] = entrada.topologia.endpoints.map((endpoint) => ({
@@ -150,5 +161,5 @@ export function calcularArvoreDeHealth(entrada: EntradaDaHierarquia): ArvoreDeHe
     (a, b) => a.score - b.score || a.escopoId.localeCompare(b.escopoId)
   );
 
-  return { porEscopo, raiz, ordenadosPorRisco };
+  return { porEscopo, raiz, ordenadosPorRisco, calibragem };
 }

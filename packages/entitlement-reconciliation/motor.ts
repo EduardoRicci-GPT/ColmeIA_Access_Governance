@@ -29,6 +29,8 @@ import { Endpoint, Topologia } from '../dominio/topologia';
 import { Relogio } from '../dominio/tempo';
 import { AtributosDeContexto, DecisaoDePolitica, PedidoDeDecisao } from '../policy-engine/tipos';
 import { PolicyEngine } from '../policy-engine/motor';
+import { ConsultaDeAprovacao, MaterialDeRevisao, SEM_APROVACOES } from '../governanca/aprovacao';
+import { AfetadosPelaDecisao } from '../contratos-estruturais/filtro-zero';
 
 export interface MundoLogico {
   organizationId: string;
@@ -43,15 +45,29 @@ export interface MundoLogico {
    */
   restricoesPorZona?: Readonly<Record<string, string>>;
   /**
-   * Aprovações humanas concedidas, por `${relationshipId}::${endpointId}`.
+   * A consulta de aprovação humana.
    *
-   * O motor não inventa aprovação e não a presume. Enquanto a chave não estiver
-   * aqui, um acesso que a política marcou como REQUIRE_APPROVAL permanece em
-   * KEEP — direito não materializado — e aparece na lista de pendências. É a
-   * diferença entre um sistema que exige supervisão humana e um que apenas
-   * escreve "exige supervisão humana" no log antes de liberar a porta.
+   * A primeira versão disto era um `Set<string>` de chaves
+   * `${relationshipId}::${endpointId}`, e o defeito dela só ficou visível
+   * depois: uma chave aprova A PORTA, para sempre, independentemente do que
+   * motivou a aprovação. Sobe a criticidade do endpoint, muda o papel da
+   * pessoa, o vínculo vira prestador — a chave continua lá, e continua
+   * abrindo. O supervisor aprovou uma coisa e o sistema executa outra, sem que
+   * ninguém tenha mentido.
+   *
+   * Agora a consulta recebe o MATERIAL, e o human-gate do MPE-H liga a
+   * aprovação ao hash dele. Mudou o material, a aprovação deixa de valer
+   * sozinha — ninguém precisa lembrar de revogá-la.
+   *
+   * Ausente significa NENHUMA aprovação. Fecha por omissão, como tudo aqui.
    */
-  aprovacoes?: ReadonlySet<string>;
+  aprovacoes?: ConsultaDeAprovacao;
+  /**
+   * A resposta do Filtro Zero: quem é afetado por estas decisões, e o que
+   * genuinamente precisam. Ausente, o ciclo roda e a lacuna fica registrada —
+   * pré-condição não respondida nunca é preenchida por suposição.
+   */
+  afetados?: Partial<AfetadosPelaDecisao>;
 }
 
 export type TipoDeAcao = 'GRANT' | 'REVOKE' | 'UPDATE_WINDOW' | 'KEEP';
@@ -67,6 +83,15 @@ export interface AcaoDeEntitlement {
   /** Janela recorrente desejada, quando a ação é GRANT ou UPDATE_WINDOW. */
   escalaDesejada?: JanelaRecorrente;
   decisao: DecisaoDePolitica;
+  /**
+   * O material que uma pessoa revisaria para autorizar esta ação.
+   *
+   * Viaja junto da ação porque a fila de pendências da tela precisa mostrar
+   * exatamente o que será aprovado — e porque o hash desse material é o que
+   * liga a aprovação ao conteúdo. Uma fila que mostrasse só "Fulano quer entrar
+   * no cofre" pediria ao supervisor que assinasse um resumo.
+   */
+  material: MaterialDeRevisao;
   explicacao: string;
 }
 
@@ -130,6 +155,32 @@ export function montarContexto(
   return contexto;
 }
 
+/**
+ * O material que uma pessoa vai revisar antes de liberar um acesso crítico.
+ *
+ * Contém exatamente os fatos que mudariam a decisão de quem aprova — e nada
+ * além. Acrescentar um campo aqui invalida todas as aprovações vigentes, o que
+ * parece um custo e é uma propriedade: quem muda o que se revisa está mudando o
+ * que foi aprovado.
+ */
+export function montarMaterialDeRevisao(
+  vinculo: Relationship,
+  endpoint: Endpoint,
+  razaoDaPolitica: string
+): MaterialDeRevisao {
+  return {
+    personId: vinculo.personId,
+    relationshipId: vinculo.id,
+    endpointId: endpoint.id,
+    nomeDoEndpoint: endpoint.nome,
+    zonaId: endpoint.zonaId,
+    criticidade: endpoint.criticidade,
+    papeis: vinculo.roleIds,
+    tipoDeVinculo: vinculo.tipo,
+    razaoDaPolitica
+  };
+}
+
 export class EntitlementReconciliationEngine {
   constructor(
     private readonly policyEngine: PolicyEngine,
@@ -167,8 +218,11 @@ export class EntitlementReconciliationEngine {
         };
         const decisao = this.policyEngine.decidir(pedido);
         conflitos += decisao.conflitos.length;
-        const aprovado = mundo.aprovacoes?.has(`${vinculo.id}::${endpoint.id}`) === true;
-        acoes.push(this.acaoPara(decisao, vinculo, endpoint, existente, aprovado));
+        const material = montarMaterialDeRevisao(vinculo, endpoint, decisao.razao);
+        const consulta = mundo.aprovacoes ?? SEM_APROVACOES;
+        acoes.push(
+          this.acaoPara(decisao, vinculo, endpoint, existente, consulta.autorizado(material), material, consulta)
+        );
         vigentesPorChave.delete(chave);
       }
     }
@@ -186,6 +240,17 @@ export class EntitlementReconciliationEngine {
         endpointId,
         entitlementId: orfao.id,
         motivo: 'RELATIONSHIP_TERMINATED',
+        material: {
+          personId: orfao.personId,
+          relationshipId,
+          endpointId,
+          nomeDoEndpoint: endpointId,
+          zonaId: '—',
+          criticidade: 'HIGH',
+          papeis: [],
+          tipoDeVinculo: 'DESCONHECIDO',
+          razaoDaPolitica: 'Direito órfão'
+        },
         decisao: {
           id: `DEC-ORFAO-${orfao.id}`,
           pedidoId: `PED-ORFAO-${orfao.id}`,
@@ -245,14 +310,17 @@ export class EntitlementReconciliationEngine {
     vinculo: Relationship,
     endpoint: Endpoint,
     existente: Entitlement | undefined,
-    aprovado: boolean
+    aprovado: boolean,
+    material: MaterialDeRevisao,
+    consulta: ConsultaDeAprovacao
   ): AcaoDeEntitlement {
     const base = {
       personId: vinculo.personId,
       relationshipId: vinculo.id,
       endpointId: endpoint.id,
       entitlementId: existente?.id,
-      decisao
+      decisao,
+      material
     };
 
     if (decisao.efeito === 'DENY') {
@@ -280,7 +348,9 @@ export class EntitlementReconciliationEngine {
         ...base,
         tipo: 'KEEP',
         escalaDesejada: vinculo.escala,
-        explicacao: `Aprovação humana pendente: o direito NÃO foi materializado. ${decisao.razao}`
+        explicacao:
+          `Aprovação humana pendente: o direito NÃO foi materializado. ` +
+          `${consulta.explicar(material)} ${decisao.razao}`
       };
     }
 

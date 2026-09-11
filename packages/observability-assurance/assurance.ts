@@ -64,6 +64,14 @@ export function chaveDoCaso(resultado: PhysicalReconciliationResult): string {
 
 export class ObservabilityAssuranceEngine {
   private readonly casos = new Map<string, EscalationCase>();
+  /**
+   * Casos que NÃO nascem da reconciliação física e, por isso, não podem ser
+   * encerrados pela ausência dela. Sem esta marca, `encerrarCasosResolvidos`
+   * fecharia uma lacuna de cobertura no mesmo ciclo em que ela foi aberta —
+   * porque a lacuna não aparece na lista de divergências físicas, e o método
+   * leria essa ausência como "resolvido".
+   */
+  private readonly chavesExternas = new Set<string>();
   private readonly ultimoScore = new Map<string, number>();
   private sequencia = 0;
 
@@ -163,6 +171,32 @@ export class ObservabilityAssuranceEngine {
     };
   }
 
+  /**
+   * Abre um caso que não nasceu da reconciliação física — hoje, a lacuna de
+   * cobertura do freio. Deduplicado pela mesma chave estável dos demais, para
+   * que um lote que se repete não produza uma fila de casos idênticos.
+   */
+  abrirCasoExterno(chave: string, caso: Omit<EscalationCase, 'id' | 'status' | 'createdAt'>): EscalationCase | null {
+    const existente = this.casos.get(chave);
+    if (existente && existente.status !== 'RESOLVED' && existente.status !== 'DISMISSED') return null;
+    this.sequencia += 1;
+    const novo: EscalationCase = {
+      ...caso,
+      id: `ESC-${String(this.sequencia).padStart(5, '0')}`,
+      status: 'OPEN',
+      createdAt: this.relogio.agora()
+    };
+    this.casos.set(chave, novo);
+    this.chavesExternas.add(chave);
+    return novo;
+  }
+
+  /** Encerra um caso externo quando a condição que o abriu deixou de valer. */
+  encerrarCasoExterno(chave: string, porQuem: string): EscalationCase | null {
+    if (!this.chavesExternas.has(chave)) return null;
+    return this.resolverCaso(chave, porQuem);
+  }
+
   reconhecerCaso(chave: string, porQuem: string): EscalationCase | null {
     const caso = this.casos.get(chave);
     if (!caso) return null;
@@ -201,6 +235,7 @@ export class ObservabilityAssuranceEngine {
     const encerrados: EscalationCase[] = [];
     for (const [chave, caso] of this.casos) {
       if (caso.status === 'RESOLVED' || caso.status === 'DISMISSED') continue;
+      if (this.chavesExternas.has(chave)) continue;
       if (aindaAbertas.has(chave)) continue;
       const atualizado: EscalationCase = {
         ...caso,

@@ -143,8 +143,9 @@ async function executar(): Promise<void> {
 
   // ---- 14. A auditoria preserva a sequência inteira -----------------------
   grupo('P1 · passo 14: a auditoria preserva toda a sequência');
-  const trilha = bancada.auditoria.trilha(`COR::ep-farm-2::${CREDENCIAL}`);
-  const linha = construirLinhaDoTempo(CREDENCIAL, trilha);
+  const elos = await bancada.trilha.trilhaDe(`COR::ep-farm-2::${CREDENCIAL}`);
+  const integridade = await bancada.trilha.verificarIntegridade();
+  const linha = construirLinhaDoTempo(CREDENCIAL, elos, integridade);
   const tipos = linha.entradas.map((e) => e.tipo);
 
   verificar('a concessão está registrada', tipos.includes('EntitlementGranted'));
@@ -165,8 +166,34 @@ async function executar(): Promise<void> {
   );
   verificar(
     'a auditoria não perdeu nenhum evento por deduplicação indevida',
-    bancada.eventos.tamanho() >= tipos.length,
-    `${bancada.eventos.tamanho()} eventos, ${bancada.eventos.duplicatasAbsorvidas()} duplicatas absorvidas`
+    (await bancada.trilha.tamanho()) >= tipos.length,
+    `${await bancada.trilha.tamanho()} elos, ${bancada.trilha.duplicatasAbsorvidas()} duplicatas absorvidas`
+  );
+
+  grupo('P1 · a trilha é cadeia verificável, não lista ordenada');
+  verificar('a cadeia está íntegra', integridade.integra, JSON.stringify(integridade));
+  igual('e cobre todos os elos registrados', integridade.total, await bancada.trilha.tamanho());
+  verificar(
+    'a sequência da cadeia é contígua a partir de zero',
+    linha.entradas.every((e, i, l) => i === 0 || e.sequencia > l[i - 1]!.sequencia),
+    linha.entradas.map((e) => e.sequencia).join(',')
+  );
+  verificar(
+    'cada elo carrega o corpo que respondeu por ele (ADR-0003)',
+    linha.entradas.every((e) => ['DIRETIVO', 'CONSULTIVO', 'EXECUTIVO', 'HUMANO'].includes(e.corpo)),
+    [...new Set(linha.entradas.map((e) => e.corpo))].join(', ')
+  );
+  verificar(
+    'a revogação do direito foi assinada pelo corpo DIRETIVO',
+    linha.entradas.find((e) => e.tipo === 'EntitlementRevoked')?.corpo === 'DIRETIVO'
+  );
+  verificar(
+    'e a ordem física, pelo corpo EXECUTIVO',
+    linha.entradas.find((e) => e.tipo === 'PhysicalRevocationRequested')?.corpo === 'EXECUTIVO'
+  );
+  verificar(
+    'todo elo tem hash e encadeia no anterior',
+    linha.entradas.every((e) => e.hash.length === 64)
   );
 
   fechar('Cenário P1 — divergência física');

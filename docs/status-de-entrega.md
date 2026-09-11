@@ -17,6 +17,18 @@
 
 ---
 
+## 0. Kernel MPE-H (copiado da Aletheia)
+
+| Componente | Status | Observação |
+|---|---|---|
+| Ledger (cadeia encadeada por hash) | `IMPLEMENTED` | cópia selada; relógio injetado, cadeia reproduzível |
+| HumanGate (aprovação ligada ao conteúdo) | `IMPLEMENTED` | cópia selada; `AutoridadeDoHost` provida pelo host |
+| Calibration (estatuto de constante) | `IMPLEMENTED` | cópia selada; os doze pesos deste produto em `SOMBRA` |
+| Verificador do espelho | `IMPLEMENTED` | integridade da cópia + deriva relatada em relação à origem |
+| Guardrail estrutural | `IMPLEMENTED` (porte) | prova diferencial contra a origem, 8 textos |
+| R-VEP (canal lexical) | `INTERFACE_READY` | porta `LeitorDeContexto360`; exige Python e ~350 ms, não entra no caminho da porta |
+| WSG | **não existe** | quarto pacote da ordem do guia, ainda não extraído na origem |
+
 ## 1. Núcleo lógico
 
 | Componente | Status | Observação |
@@ -24,7 +36,9 @@
 | Policy Engine | `IMPLEMENTED` | fecha por omissão; conflito não se resolve sozinho; dois modos de decisão |
 | Regras hospitalares de base | `IMPLEMENTED` | vínculo, OS, turno, aprovação em área crítica, concessão por papel e por lotação |
 | Entitlement Reconciliation | `IMPLEMENTED` | GRANT / REVOKE / UPDATE_WINDOW / KEEP, com detecção de direito órfão |
-| Aprovação humana | `IMPLEMENTED` (mínima) | conjunto de chaves; falta identidade do aprovador, alçada, prazo e trilha |
+| Aprovação humana | `IMPLEMENTED` | human-gate: ligada ao hash do material, alçada do host, duas assinaturas em `CRITICA` |
+| Filtro Zero | `IMPLEMENTED` | pré-condição de entrada; fail-closed sobre declaração ausente |
+| O Freio (lacuna de cobertura) | `IMPLEMENTED` | o erro simétrico: zona de cuidado que ficaria sem ninguém |
 | Modelo de identidade e vínculo | `IMPLEMENTED` | Person, Relationship, Role, Entitlement, Credential, janela recorrente |
 
 ## 2. Núcleo físico
@@ -57,8 +71,9 @@
 |---|---|---|
 | Tela Access Assurance (mínima) | `IMPLEMENTED` | view-model puro + renderizador HTML sem egresso |
 | Timeline de auditoria | `IMPLEMENTED` | evento no instante em que ocorreu; janelas de risco medidas |
-| Armazém de eventos idempotente | `IMPLEMENTED` | duplicata absorvida e contabilizada |
-| Índice de auditoria por correlação | `IMPLEMENTED` | em memória |
+| Trilha em cadeia (Ledger) | `IMPLEMENTED` | sequência contígua, encadeamento por hash, recomputação |
+| Separação de corpos por elo | `IMPLEMENTED` | DIRETIVO/CONSULTIVO/EXECUTIVO/HUMANO; mistura contada, não escondida |
+| Idempotência na ingestão | `IMPLEMENTED` | duplicata absorvida e contabilizada, fora do ledger |
 
 ## 5. Persistência
 
@@ -107,21 +122,26 @@ Nenhum destes tocou hardware real. São reproduzidos de forma determinística pe
 
 ## 8. Bateria
 
-`npm run acesso:verificar` — **244 verificações, todas passando**.
+`npm run acesso:verificar` — **380 verificações, todas passando**.
 
 | Suíte | Verificações |
 |---|---|
-| Cenário P1 — divergência física | 30 |
+| Cenário P1 — divergência física | 37 |
 | Cenário P2 — telemetria de latência | 19 |
-| Cenários hospitalares H7–H10 | 33 |
+| Cenários hospitalares H7–H10 | 41 |
 | Contrato de adaptadores v2 | 57 |
 | Health Score — composição, pesos e hierarquia | 19 |
 | Projeção de contexto e credenciais | 25 |
 | Simulador v2 e políticas de repetição | 33 |
 | Honestidade de estado | 28 |
+| Aprovação humana ligada ao conteúdo | 27 |
+| Calibragem dos pesos do Health Score | 24 |
+| Contratos estruturais do MPE-H (com diferencial) | 49 |
+| Leitura 360° e a porta do R-VEP | 21 |
 
-Mais dois gates: `acesso:lint` (pureza — sem DOM, sem Node, `strict`,
-`noUncheckedIndexedAccess`) e `acesso:lint-estado` (o item 2 como condição de CI).
+Mais três gates: `acesso:lint` (pureza — sem DOM, sem Node, `strict`,
+`noUncheckedIndexedAccess`), `acesso:lint-estado` (o item 2 como condição de CI) e
+`acesso:espelho` (integridade da cópia do kernel + deriva em relação à origem).
 
 ## 9. Riscos restantes
 
@@ -138,8 +158,15 @@ Mais dois gates: `acesso:lint` (pureza — sem DOM, sem Node, `strict`,
 4. **A calibração dos pesos do Health Score é um palpite informado.** Reproduz o
    exemplo da especificação, o que prova coerência com a intenção — não que os
    pesos estejam certos para um hospital específico.
-5. **A aprovação humana é mínima.** Sem identidade, alçada, prazo e trilha, ela
-   registra que houve aprovação, não quem aprovou nem com que autoridade.
+5. **A aprovação humana ganhou estrutura, e falta operação.** Identidade, alçada
+   e ligação ao conteúdo existem; falta prazo de validade da aprovação, fluxo de
+   notificação a quem tem alçada, e a integração do `AutoridadeDoHost` com o RBAC
+   real de um aplicativo de gestão.
+11. **O canal lexical do R-VEP não está ligado.** A porta existe e a ausência é
+    declarada, mas a leitura 360° hoje opera com um canal só. Ligar o segundo
+    exige Python no host e uma decisão sobre onde ele roda.
+12. **A cópia do kernel exige sincronia deliberada.** O verificador relata a
+    deriva; não a resolve. Uma correção feita na Aletheia não chega aqui sozinha.
 
 **Operacionais**
 

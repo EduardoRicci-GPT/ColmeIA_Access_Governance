@@ -1,6 +1,6 @@
 # ADR-0001 — Raiz do produto dentro da Aletheia, com os caminhos da especificação preservados
 
-- **Estado:** aceito
+- **Estado:** aceito quanto aos caminhos; o enquadramento foi corrigido pelo ADR-0010
 - **Data:** 2026-09-11
 - **Conflito registrado com documento anterior:** sim (ver "Conflito" abaixo)
 

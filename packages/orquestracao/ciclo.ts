@@ -23,7 +23,9 @@
 
 import { AccessState } from '../dominio/estado';
 import { ESTADO_DE_TENTATIVAS_INICIAL, PoliticaDeRetry, RETRY_PADRAO, proximaTentativa } from '../dominio/escalonamento';
-import { ArmazemDeEventos, EventoDeDominio, TipoDeEvento } from '../dominio/eventos';
+import { EventoDeDominio, TipoDeEvento } from '../dominio/eventos';
+import { AutorDeRegistro, TrilhaDeAcesso } from '../auditoria/trilha';
+import { VerdictoDeIntegridade } from '../mpeh-kernel/ledger/tipos';
 import { AccessOperationTelemetry, DiagnosticoDeLatencia, diagnosticarLatencia } from '../dominio/telemetria';
 import { Relogio } from '../dominio/tempo';
 import { StatusDeConectividade, Topologia } from '../dominio/topologia';
@@ -37,12 +39,17 @@ import {
 import { ObservabilityAssuranceEngine, RelatorioDeAssurance } from '../observability-assurance/assurance';
 import { RegistroDeAcesso, SyncJob } from '../persistencia/modelo';
 import {
-  IndiceDeAuditoria,
   RepositorioDeEntitlements,
   RepositorioDeRegistrosDeAcesso,
   RepositorioDeSyncJobs
 } from '../persistencia/repositorios';
 import { chaveDeIdempotencia, correlacaoDeCredencial } from './idempotencia';
+import {
+  AvaliacaoDoFreioDeAcesso,
+  avaliarLoteDeAcesso,
+  montarCobertura,
+  verificarFiltroZero
+} from '../contratos-estruturais';
 
 export interface DependenciasDoCiclo {
   relogio: Relogio;
@@ -53,14 +60,33 @@ export interface DependenciasDoCiclo {
   registros: RepositorioDeRegistrosDeAcesso;
   entitlements: RepositorioDeEntitlements;
   syncJobs: RepositorioDeSyncJobs;
-  eventos: ArmazemDeEventos;
-  auditoria: IndiceDeAuditoria;
+  /** A auditoria é uma cadeia encadeada por hash, não uma lista. */
+  trilha: TrilhaDeAcesso;
   retry?: PoliticaDeRetry;
+}
+
+/**
+ * Evento acompanhado do corpo que o assina. O ledger recusa autor vazio, e
+ * essa recusa é o que impede um registro órfão de entrar na cadeia com
+ * aparência de fato apurado.
+ */
+interface EventoAssinado {
+  evento: EventoDeDominio;
+  autor: AutorDeRegistro;
 }
 
 export interface RelatorioDoCiclo {
   momento: Date;
   acoesLogicas: readonly AcaoDeEntitlement[];
+  /** Acessos que a política marcou como REQUIRE_APPROVAL e ninguém aprovou. */
+  pendentesDeAprovacao: readonly AcaoDeEntitlement[];
+  /**
+   * O freio da parceria sobre este lote.
+   *
+   * Responde à pergunta que o resto do sistema não faz: este ciclo deixaria
+   * alguma zona de cuidado sem ninguém capaz de entrar?
+   */
+  freio: AvaliacaoDoFreioDeAcesso;
   ordensEnviadas: number;
   ordensRecusadasPorIdempotencia: number;
   eventosIngeridos: number;
@@ -68,6 +94,8 @@ export interface RelatorioDoCiclo {
   latencias: readonly DiagnosticoDeLatencia[];
   assurance: RelatorioDeAssurance;
   eventosDoCiclo: readonly EventoDeDominio[];
+  /** A cadeia de auditoria continua íntegra depois deste ciclo? */
+  integridadeDaTrilha: VerdictoDeIntegridade;
 }
 
 export class CicloDeGovernanca {
@@ -81,10 +109,20 @@ export class CicloDeGovernanca {
 
   async executar(mundo: MundoLogico): Promise<RelatorioDoCiclo> {
     const momento = this.deps.relogio.agora();
-    const eventosDoCiclo: EventoDeDominio[] = [];
+    const eventosDoCiclo: EventoAssinado[] = [];
 
     // 1. Reconciliação lógica.
     const logica = this.deps.entitlementEngine.reconciliar(mundo);
+
+    // 1.5. O FREIO, antes de materializar.
+    //
+    // Roda aqui, e não depois, porque o que ele transfere ao humano é uma
+    // decisão sobre a ESCALA — e uma escala descoberta descoberta só depois de
+    // a porta já ter sido fechada chega tarde para o plantão que começa.
+    const freio = this.avaliarFreio(mundo, logica.acoes);
+    if (freio.zonasDescobertas.length > 0) {
+      this.registrarLacunaDeCobertura(mundo, freio, eventosDoCiclo);
+    }
 
     // 2. Materialização.
     const materializacao = await this.materializar(mundo, logica.acoes, eventosDoCiclo);
@@ -111,21 +149,29 @@ export class CicloDeGovernanca {
     });
     this.deps.assuranceEngine.encerrarCasosResolvidos(resumoFisico.resultados);
 
-    for (const evento of [...eventosDoCiclo, ...assurance.eventos]) {
-      this.deps.eventos.registrar(evento);
-      this.deps.auditoria.indexar(evento);
+    // Selagem no ledger. Os eventos do assurance entram assinados por ele —
+    // são leitura, não decisão —, e cada elo carrega o corpo de origem.
+    const assinados: EventoAssinado[] = [
+      ...eventosDoCiclo,
+      ...assurance.eventos.map((evento) => ({ evento, autor: 'observability-assurance' as const }))
+    ];
+    for (const { evento, autor } of assinados) {
+      await this.deps.trilha.registrar(evento, autor);
     }
 
     return {
       momento,
       acoesLogicas: logica.acoes,
+      pendentesDeAprovacao: logica.pendentesDeAprovacao,
+      freio,
       ordensEnviadas: materializacao.enviadas,
       ordensRecusadasPorIdempotencia: materializacao.recusadas,
       eventosIngeridos: ingeridos,
       reconciliacoesFisicas: resumoFisico.resultados,
       latencias,
       assurance,
-      eventosDoCiclo: [...eventosDoCiclo, ...assurance.eventos]
+      eventosDoCiclo: assinados.map(({ evento }) => evento),
+      integridadeDaTrilha: await this.deps.trilha.verificarIntegridade()
     };
   }
 
@@ -134,7 +180,7 @@ export class CicloDeGovernanca {
   private async materializar(
     mundo: MundoLogico,
     acoes: readonly AcaoDeEntitlement[],
-    eventosDoCiclo: EventoDeDominio[]
+    eventosDoCiclo: EventoAssinado[]
   ): Promise<{ enviadas: number; recusadas: number }> {
     let enviadas = 0;
     let recusadas = 0;
@@ -170,8 +216,9 @@ export class CicloDeGovernanca {
           registro.credentialId,
           (this.geracaoPorCredencial.get(registro.credentialId) ?? 0) + 1
         );
-        eventosDoCiclo.push(
-          this.evento(
+        eventosDoCiclo.push({
+          autor: 'entitlement-reconciliation',
+          evento: this.evento(
             acao.tipo === 'REVOKE' ? 'EntitlementRevoked' : 'EntitlementGranted',
             mundo,
             {
@@ -187,7 +234,7 @@ export class CicloDeGovernanca {
                   : `Direito concedido. ${acao.explicacao}`
             }
           )
-        );
+        });
       }
 
       const geracao = this.geracaoPorCredencial.get(registro.credentialId) ?? 1;
@@ -292,8 +339,9 @@ export class CicloDeGovernanca {
         atualizadoEm: agora
       });
 
-      eventosDoCiclo.push(
-        this.evento(
+      eventosDoCiclo.push({
+        autor: 'adaptador',
+        evento: this.evento(
           tipo === 'REVOKE' ? 'PhysicalRevocationRequested' : 'PhysicalGrantRequested',
           mundo,
           {
@@ -309,7 +357,7 @@ export class CicloDeGovernanca {
               `${resultado.physicalConfirmation}. ${resultado.message ?? ''}`.trim()
           }
         )
-      );
+      });
     }
 
     return { enviadas, recusadas };
@@ -462,7 +510,7 @@ export class CicloDeGovernanca {
     });
   }
 
-  private async ingerirEventos(mundo: MundoLogico, eventosDoCiclo: EventoDeDominio[]): Promise<number> {
+  private async ingerirEventos(mundo: MundoLogico, eventosDoCiclo: EventoAssinado[]): Promise<number> {
     let pagina;
     try {
       pagina = await this.deps.adaptador.getAccessEvents(this.cursorDeEventos);
@@ -503,8 +551,9 @@ export class CicloDeGovernanca {
         });
       }
 
-      eventosDoCiclo.push(
-        this.evento(tipo, mundo, {
+      eventosDoCiclo.push({
+        autor: 'adaptador',
+        evento: this.evento(tipo, mundo, {
           endpointId: externo.endpointId,
           personId: registro?.personId,
           entitlementId: registro?.entitlementId,
@@ -518,7 +567,7 @@ export class CicloDeGovernanca {
           decisionOrigin: externo.decidiuLocalmente ? 'DEVICE_LOCAL' : 'COLMEIA_POLICY_ENGINE',
           resumo: `Evento ${externo.tipo} do endpoint ${externo.endpointId}.`
         })
-      );
+      });
       ingeridos += 1;
     }
     return ingeridos;
@@ -574,7 +623,7 @@ export class CicloDeGovernanca {
   private registrarEstadosFisicos(
     resultados: readonly PhysicalReconciliationResult[],
     mundo: MundoLogico,
-    eventosDoCiclo: EventoDeDominio[]
+    eventosDoCiclo: EventoAssinado[]
   ): void {
     const agora = this.deps.relogio.agora();
     for (const resultado of resultados) {
@@ -590,8 +639,9 @@ export class CicloDeGovernanca {
       });
 
       if (resultado.estadoSemantico === 'DEVICE_REVOCATION_PENDING' || resultado.estadoSemantico === 'DEVICE_GRANT_PENDING') {
-        eventosDoCiclo.push(
-          this.evento('PhysicalSyncPending', mundo, {
+        eventosDoCiclo.push({
+          autor: 'physical-state-reconciliation',
+          evento: this.evento('PhysicalSyncPending', mundo, {
             endpointId: resultado.endpointId,
             personId: resultado.personId,
             entitlementId: resultado.entitlementId,
@@ -600,8 +650,90 @@ export class CicloDeGovernanca {
             idempotencyKey: `PEND::${resultado.credentialId}::${resultado.estadoSemantico}::${agora.toISOString()}`,
             resumo: resultado.reason
           })
-        );
+        });
       }
+    }
+  }
+
+  /**
+   * Conta, por zona, quantas pessoas distintas têm acesso ativo antes e depois
+   * deste lote — e pergunta ao freio se alguma zona de cuidado ficaria vazia.
+   */
+  private avaliarFreio(mundo: MundoLogico, acoes: readonly AcaoDeEntitlement[]): AvaliacaoDoFreioDeAcesso {
+    const endpointsPorId = new Map(mundo.topologia.endpoints.map((e) => [e.id, e]));
+    const nomesDeZona = new Map(mundo.topologia.nos.map((no) => [no.id, no.nome]));
+
+    const antes = new Map<string, Set<string>>();
+    for (const direito of mundo.entitlementsVigentes) {
+      if (direito.revogadoEm) continue;
+      const zona = endpointsPorId.get(direito.endpointId)?.zonaId;
+      if (!zona) continue;
+      const pessoas = antes.get(zona) ?? new Set<string>();
+      pessoas.add(direito.personId);
+      antes.set(zona, pessoas);
+    }
+
+    const depois = new Map<string, Set<string>>(
+      [...antes].map(([zona, pessoas]) => [zona, new Set(pessoas)])
+    );
+    for (const acao of acoes) {
+      const zona = endpointsPorId.get(acao.endpointId)?.zonaId;
+      if (!zona) continue;
+      const pessoas = depois.get(zona) ?? new Set<string>();
+      if (acao.tipo === 'REVOKE') pessoas.delete(acao.personId);
+      if (acao.tipo === 'GRANT') pessoas.add(acao.personId);
+      depois.set(zona, pessoas);
+    }
+
+    const cobertura = [...new Set([...antes.keys(), ...depois.keys()])].map((zonaId) => {
+      const criticidade =
+        mundo.topologia.endpoints.find((e) => e.zonaId === zonaId)?.criticidade ?? 'MEDIUM';
+      return montarCobertura({
+        zonaId,
+        nome: nomesDeZona.get(zonaId) ?? zonaId,
+        criticidade,
+        antes: antes.get(zonaId)?.size ?? 0,
+        depois: depois.get(zonaId)?.size ?? 0
+      });
+    });
+
+    // O Filtro Zero é respondido pelo mundo lógico. Ausente, o freio devolve
+    // `nao_avaliada` e a lacuna fica registrada — nunca preenchida por suposição.
+    const declarado = mundo.afetados ?? {
+      pessoas: [...new Set(acoes.filter((a) => a.tipo !== 'KEEP').map((a) => a.personId))],
+      zonas: [...new Set(acoes.map((a) => endpointsPorId.get(a.endpointId)?.zonaId ?? ''))].filter(Boolean),
+      zonasDeCuidado: cobertura.filter((z) => z.ehZonaDeCuidado).map((z) => z.zonaId),
+      necessidade:
+        'entrar nas áreas que o vínculo autoriza, quando o vínculo autoriza — e não entrar quando não autoriza'
+    };
+
+    return avaliarLoteDeAcesso({ cobertura, filtroZero: verificarFiltroZero(declarado) });
+  }
+
+  private registrarLacunaDeCobertura(
+    mundo: MundoLogico,
+    freio: AvaliacaoDoFreioDeAcesso,
+    eventosDoCiclo: EventoAssinado[]
+  ): void {
+    for (const zona of freio.zonasDescobertas) {
+      const chave = `COBERTURA::${zona.zonaId}`;
+      const caso = this.deps.assuranceEngine.abrirCasoExterno(chave, {
+        type: 'COVERAGE_GAP',
+        severity: zona.criticidade === 'CRITICAL' ? 'CRITICAL' : 'HIGH',
+        reason:
+          `${zona.nome} ficaria sem ninguém com acesso ativo (${zona.pessoasComAcessoAntes} → 0). ` +
+          'A revogação segue; a decisão sobre a escala passa a quem responde por ela.',
+        evidencias: [chave, freio.motivo]
+      });
+      if (!caso) continue;
+      eventosDoCiclo.push({
+        autor: 'entitlement-reconciliation',
+        evento: this.evento('CoverageGapDetected', mundo, {
+          decisionOrigin: 'COLMEIA_POLICY_ENGINE',
+          idempotencyKey: `COBERTURA::${zona.zonaId}::${caso.id}`,
+          resumo: caso.reason
+        })
+      });
     }
   }
 

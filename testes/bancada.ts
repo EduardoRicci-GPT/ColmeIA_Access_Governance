@@ -11,7 +11,13 @@
 // ---------------------------------------------------------------------------
 
 import { RelogioFixo } from '../packages/dominio/tempo';
-import { ArmazemDeEventos } from '../packages/dominio/eventos';
+import { TrilhaDeAcesso } from '../packages/auditoria';
+import {
+  ALCADAS_HOSPITALARES,
+  AutoridadeEmMemoria,
+  GateDeAcesso,
+  MaterialDeRevisao
+} from '../packages/governanca';
 import { Endpoint, Gateway, NoDeHierarquia, ProviderConnection, Topologia } from '../packages/dominio/topologia';
 import { Person, Relationship, Role } from '../packages/dominio/entitlement';
 import { PolicyEngine, REGRAS_HOSPITALARES_BASE } from '../packages/policy-engine';
@@ -22,7 +28,6 @@ import { MockAccessProvider, SimuladorDeMundoFisico } from '../packages/adapters
 import { CicloDeGovernanca } from '../packages/orquestracao';
 import {
   EntitlementsEmMemoria,
-  IndiceDeAuditoria,
   RegistrosDeAcessoEmMemoria,
   SyncJobsEmMemoria
 } from '../packages/persistencia';
@@ -193,8 +198,9 @@ export interface Bancada {
   adaptador: MockAccessProvider;
   ciclo: CicloDeGovernanca;
   assurance: ObservabilityAssuranceEngine;
-  eventos: ArmazemDeEventos;
-  auditoria: IndiceDeAuditoria;
+  trilha: TrilhaDeAcesso;
+  gate: GateDeAcesso;
+  autoridade: AutoridadeEmMemoria;
   registros: RegistrosDeAcessoEmMemoria;
   entitlements: EntitlementsEmMemoria;
   syncJobs: SyncJobsEmMemoria;
@@ -218,8 +224,15 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
   const registros = new RegistrosDeAcessoEmMemoria();
   const entitlements = new EntitlementsEmMemoria();
   const syncJobs = new SyncJobsEmMemoria();
-  const eventos = new ArmazemDeEventos();
-  const auditoria = new IndiceDeAuditoria();
+  const trilha = new TrilhaDeAcesso({ relogio });
+
+  // A autoridade vem do host. Na bancada, é esta implementação de referência;
+  // num aplicativo de gestão hospitalar, é o RBAC do próprio aplicativo.
+  const autoridade = new AutoridadeEmMemoria(ALCADAS_HOSPITALARES);
+  autoridade.credenciar('rita.diretoria', 'token-rita');
+  autoridade.credenciar('paulo.diretoria', 'token-paulo');
+  autoridade.credenciar('sofia.seguranca', 'token-sofia');
+  const gate = new GateDeAcesso(autoridade, relogio);
 
   const ciclo = new CicloDeGovernanca({
     relogio,
@@ -230,8 +243,7 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     registros,
     entitlements,
     syncJobs,
-    eventos,
-    auditoria
+    trilha
   });
 
   const mundo: MundoLogico = {
@@ -241,12 +253,26 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     papeis: PAPEIS,
     topologia: topologiaInicial(),
     entitlementsVigentes: [],
-    // O cofre de psicotrópicos é CRITICAL: a política exige aprovação humana, e
-    // a aprovação do supervisor de segurança está registrada.
-    aprovacoes: new Set(['vin-rui::ep-seg-1'])
+    // O cofre de psicotrópicos é CRITICAL: a política exige aprovação humana,
+    // e o gate exige DUAS pessoas distintas nessa faixa. A aprovação é aberta
+    // e decidida em `aprovarCofre()`, contra o material selado.
+    aprovacoes: gate
   };
 
-  return { relogio, simulador, adaptador, ciclo, assurance, eventos, auditoria, registros, entitlements, syncJobs, mundo };
+  return {
+    relogio,
+    simulador,
+    adaptador,
+    ciclo,
+    assurance,
+    trilha,
+    gate,
+    autoridade,
+    registros,
+    entitlements,
+    syncJobs,
+    mundo
+  };
 }
 
 /** Atualiza o mundo com os direitos vigentes antes do próximo tick. */
@@ -260,4 +286,37 @@ export async function tick(bancada: Bancada, avancoMs = 0) {
   if (avancoMs > 0) bancada.relogio.avancarMs(avancoMs);
   bancada.simulador.processar(bancada.relogio.agora());
   return bancada.ciclo.executar(sincronizarMundo(bancada));
+}
+
+/**
+ * Aprovação humana do cofre de psicotrópicos, do jeito que o gate exige.
+ *
+ * Duas decisões de pessoas DISTINTAS, porque a criticidade é CRITICA. O
+ * material é selado antes e conferido depois: se qualquer fato do acesso mudar
+ * entre a revisão e a execução, a aprovação para de valer sem que ninguém
+ * precise revogá-la.
+ */
+export async function aprovarCofre(bancada: Bancada, material: MaterialDeRevisao) {
+  await bancada.gate.abrir(material, 'ciclo-de-governanca');
+  await bancada.gate.decidir(material, {
+    decisao: 'APROVADO',
+    aprovador: 'rita.diretoria',
+    papel: 'diretoria-tecnica',
+    justificativa: 'Supervisor de segurança precisa de acesso ao cofre no plantão noturno.',
+    assinatura: 'token-rita'
+  });
+  return bancada.gate.decidir(material, {
+    decisao: 'APROVADO',
+    aprovador: 'paulo.diretoria',
+    papel: 'diretoria-administrativa',
+    justificativa: 'Segunda aprovação, conforme exigido para criticidade CRITICA.',
+    assinatura: 'token-paulo'
+  });
+}
+
+/** O material pendente do cofre, tal como o motor o montou neste ciclo. */
+export function materialDoCofre(relatorio: { pendentesDeAprovacao: readonly { material: MaterialDeRevisao }[] }) {
+  const pendente = relatorio.pendentesDeAprovacao.find((a) => a.material.endpointId === 'ep-seg-1');
+  if (!pendente) throw new Error('nenhuma pendência de aprovação para ep-seg-1 neste ciclo');
+  return pendente.material;
 }

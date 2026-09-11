@@ -44,6 +44,7 @@ export type TipoDeEvento =
   | 'LatencyThresholdExceeded'
   | 'AccessPolicyConflictDetected'
   | 'HealthScoreChanged'
+  | 'CoverageGapDetected'
   | 'AccessAttempted'
   | 'EscalationOpened'
   | 'EscalationResolved';

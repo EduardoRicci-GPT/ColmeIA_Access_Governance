@@ -97,6 +97,13 @@ h1{font-size:clamp(26px,4vw,36px); margin:.15em 0 0; font-weight:600; letter-spa
   font-size:15px; max-width:62ch}
 .tese strong{font-weight:600}
 
+.ressalva{margin-top:18px; background:var(--incerto-soft); border-left:3px solid var(--incerto);
+  padding:14px 16px; font-size:13.5px; color:var(--ink)}
+.ressalva summary{cursor:pointer; max-width:72ch}
+.ressalva summary:focus-visible{outline:2px solid var(--incerto); outline-offset:2px}
+.ressalva ul{margin:12px 0 0; padding-left:18px; display:flex; flex-direction:column; gap:6px}
+.ressalva li{font-size:12.5px; color:var(--ink-muted)}
+
 .faixa{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1px;
   background:var(--line); border:1px solid var(--line); margin-top:26px}
 .medida{background:var(--surface); padding:14px 16px}
@@ -172,6 +179,7 @@ tr:last-child td{border-bottom:none}
 .linhadotempo .hora{font-family:var(--fonte-dados); font-size:12.5px; color:var(--ink-muted)}
 .linhadotempo .rotulo{font-weight:600; font-size:14px}
 .linhadotempo .detalhe{font-size:13px; color:var(--ink-muted)}
+.selo-cadeia{margin-top:12px; font-size:12.5px; color:var(--ink-muted); font-family:var(--fonte-dados)}
 .janela{margin-top:10px; padding:10px 12px; background:var(--critico-soft); color:var(--critico); font-size:13.5px}
 .janela.fechada{background:var(--surface-2); color:var(--ink)}
 
@@ -229,6 +237,14 @@ function casoHtml(caso: EscalationCase): string {
 }
 
 function timelineHtml(linha: LinhaDoTempo): string {
+  const selo =
+    linha.integridade === undefined
+      ? ''
+      : `<p class="selo-cadeia">${
+          linha.integridade.integra
+            ? `Cadeia de auditoria íntegra: ${linha.integridade.total} elo(s) conferidos por hash encadeado.`
+            : `CADEIA ROMPIDA na sequência ${linha.integridade.rompeuNaSequencia}: ${escapar(linha.integridade.motivo ?? '')}`
+        }</p>`;
   const entradas = linha.entradas
     .map((entrada) => {
       const abre = entrada.tipo === 'PhysicalSyncPending' || entrada.tipo === 'PhysicalRevocationRequested';
@@ -236,7 +252,7 @@ function timelineHtml(linha: LinhaDoTempo): string {
         entrada.tipo === 'PhysicalRevocationConfirmed' || entrada.tipo === 'PhysicalGrantConfirmed';
       return `
       <li data-abre="${abre ? 1 : 0}" data-fecha="${fecha ? 1 : 0}">
-        <div class="hora">${entrada.hora}${entrada.atrasoDeConhecimentoMin > 0 ? ` · soubemos ${entrada.atrasoDeConhecimentoMin} min depois` : ''}</div>
+        <div class="hora">${entrada.hora} · elo ${entrada.sequencia} · ${entrada.corpo}${entrada.atrasoDeConhecimentoMin > 0 ? ` · soubemos ${entrada.atrasoDeConhecimentoMin} min depois` : ''}</div>
         <div class="rotulo">${escapar(entrada.rotulo)}</div>
         <div class="detalhe">${escapar(entrada.detalhe)}</div>
       </li>`;
@@ -264,7 +280,7 @@ function timelineHtml(linha: LinhaDoTempo): string {
       ? `<p class="detalhe" style="font-size:12.5px;color:var(--ink-muted)">Mais ${omitidas} janela(s) de segundos, omitidas por irrelevância operacional.</p>`
       : '';
 
-  return `<section><h3 class="mono" style="font-size:12.5px;color:var(--ink-muted);margin:0 0 12px">${escapar(linha.chave)}</h3><ul class="linhadotempo">${entradas}</ul>${janelas}${nota}</section>`;
+  return `<section><h3 class="mono" style="font-size:12.5px;color:var(--ink-muted);margin:0 0 12px">${escapar(linha.chave)}</h3><ul class="linhadotempo">${entradas}</ul>${janelas}${nota}${selo}</section>`;
 }
 
 export interface OpcoesDeRender {
@@ -339,6 +355,15 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
     <strong>determinou</strong>, o que o equipamento <strong>confirmou</strong>, e a distância entre as duas coisas.
     Onde não há confirmação, ela diz que não sabe — e o quanto isso custa.</p>
 
+    ${
+      painel.avisoDeCalibragem === null
+        ? ''
+        : `<details class="ressalva">
+             <summary><strong>Ressalva de calibragem.</strong> ${escapar(painel.avisoDeCalibragem)}</summary>
+             <ul>${painel.avisosDeCalibragem.map((aviso) => `<li>${escapar(aviso)}</li>`).join('')}</ul>
+           </details>`
+    }
+
     <dl class="faixa">
       <div class="medida destaque"><dt>Health Score</dt><dd>${painel.raiz.score}<span class="unidade">/100</span></dd></div>
       <div class="medida"><dt>Endpoints offline</dt><dd>${painel.raiz.endpointsOffline}</dd></div>
@@ -373,7 +398,9 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
     ${timelines}
 
     <p class="rodape">Painel gerado pelos motores Policy · Entitlement Reconciliation · Physical State Reconciliation ·
-    Observability &amp; Assurance. Provedor em operação: simulado (MockAccessProvider). TTLock, Control iD e Seam
+    Observability &amp; Assurance, sobre o kernel MPE-H (Ledger · HumanGate · Calibration) copiado da Aletheia.
+    A auditoria é cadeia encadeada por hash; a aprovação humana é ligada ao conteúdo revisado; os pesos do score
+    declaram o próprio estatuto. Provedor em operação: simulado (MockAccessProvider). TTLock, Control iD e Seam
     permanecem em INTERFACE_READY e não produziram nenhum estado nesta tela.</p>
   </div>`;
 
