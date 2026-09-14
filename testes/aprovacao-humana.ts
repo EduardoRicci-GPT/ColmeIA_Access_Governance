@@ -15,11 +15,16 @@ import { RelogioFixo } from '../packages/dominio/tempo';
 import {
   ALCADAS_HOSPITALARES,
   AutoridadeEmMemoria,
+  CONSTANTES_DE_VIGENCIA,
   GateDeAcesso,
+  JANELAS_PADRAO,
   MaterialDeRevisao,
   SEM_APROVACOES,
+  lerJanelas,
   serializarMaterial
 } from '../packages/governanca';
+import { DiarioNaTrilha, TrilhaDeAcesso } from '../packages/auditoria';
+import { AutoridadeDoHost, Criticidade as CriticidadeDoGate, DecisaoDeGate } from '../packages/mpeh-kernel/human-gate/tipos';
 
 function bancadaDoGate() {
   const relogio = new RelogioFixo('2026-09-11T08:00:00');
@@ -224,6 +229,279 @@ grupo('Decisão não cria pedido');
     lancou = true;
   }
   verificar('aprovar sem pedido aberto é recusado', lancou);
+}
+
+// ---------------------------------------------------------------------------
+// A ALÇADA, CONGELADA
+// ---------------------------------------------------------------------------
+
+/** Autoridade cujo teto MUDA — é a única forma de provar que o congelamento vale. */
+class AutoridadeMutavel implements AutoridadeDoHost {
+  constructor(
+    private tetos: Record<string, CriticidadeDoGate>,
+    private readonly tokens: Record<string, string>
+  ) {}
+
+  rebaixar(papel: string, ate: CriticidadeDoGate): void {
+    this.tetos = { ...this.tetos, [papel]: ate };
+  }
+
+  assinaturaConfere(decisao: DecisaoDeGate): boolean {
+    return this.tokens[decisao.aprovador] === decisao.assinatura;
+  }
+
+  podeDecidir(papel: string, criticidade: CriticidadeDoGate): boolean {
+    const ordem: Record<CriticidadeDoGate, number> = { BAIXA: 0, MEDIA: 1, ALTA: 2, CRITICA: 3 };
+    const teto = this.tetos[papel];
+    return teto !== undefined && ordem[teto] >= ordem[criticidade];
+  }
+}
+
+grupo('A alçada é congelada no instante da decisão');
+{
+  const { gate } = bancadaDoGate();
+  await gate.abrir(FARMACIA, 'motor');
+  await gate.decidir(FARMACIA, {
+    decisao: 'APROVADO',
+    aprovador: 'sofia.seguranca',
+    papel: 'supervisao-de-seguranca',
+    justificativa: 'Plantão noturno, troca de escala prevista.',
+    assinatura: 'token-sofia'
+  });
+  const [alcada] = gate.alcadasDe(FARMACIA.relationshipId, FARMACIA.endpointId);
+  igual('o teto do papel fica registrado', alcada?.ate ?? null, 'ALTA');
+  igual('e a faixa que a decisão exigia também', alcada?.exigida ?? null, 'ALTA');
+  igual('com o nome de quem decidiu', alcada?.aprovador ?? '', 'sofia.seguranca');
+}
+{
+  // Recusa de quem não tinha autoridade é fato de auditoria: precisa ficar.
+  const { gate } = bancadaDoGate();
+  await gate.abrir(COFRE, 'motor');
+  await gate.decidir(COFRE, {
+    decisao: 'APROVADO',
+    aprovador: 'caio.enfermagem',
+    papel: 'coordenacao-de-enfermagem',
+    justificativa: 'Urgência no plantão.',
+    assinatura: 'token-caio'
+  });
+  const [alcada] = gate.alcadasDe(COFRE.relationshipId, COFRE.endpointId);
+  verificar('a tentativa sem alçada fica registrada', alcada !== undefined);
+  igual('com o teto real do papel', alcada?.ate ?? null, 'MEDIA');
+  igual('e a faixa que faltava alcançar', alcada?.exigida ?? null, 'CRITICA');
+  verificar('e o gate segue não autorizando', !gate.autorizado(COFRE));
+}
+{
+  // O congelamento só se prova quando o presente muda.
+  const relogio = new RelogioFixo('2026-09-14T02:40:00');
+  const autoridade = new AutoridadeMutavel(
+    { 'supervisao-de-seguranca': 'ALTA' },
+    { 'sofia.seguranca': 'token-sofia' }
+  );
+  const gate = new GateDeAcesso(autoridade, relogio);
+  await gate.abrir(FARMACIA, 'motor');
+  await gate.decidir(FARMACIA, {
+    decisao: 'APROVADO',
+    aprovador: 'sofia.seguranca',
+    papel: 'supervisao-de-seguranca',
+    justificativa: 'Reposição de insumos na madrugada.',
+    assinatura: 'token-sofia'
+  });
+  autoridade.rebaixar('supervisao-de-seguranca', 'BAIXA');
+  const [alcada] = gate.alcadasDe(FARMACIA.relationshipId, FARMACIA.endpointId);
+  igual(
+    'rebaixar o papel depois não reescreve a autoridade de então',
+    alcada?.ate ?? null,
+    'ALTA'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A VIGÊNCIA
+// ---------------------------------------------------------------------------
+
+async function aprovarCofre(gate: GateDeAcesso): Promise<void> {
+  await gate.abrir(COFRE, 'motor');
+  await gate.decidir(COFRE, {
+    decisao: 'APROVADO',
+    aprovador: 'rita.diretoria',
+    papel: 'diretoria-tecnica',
+    justificativa: 'Reposição de psicotrópicos conferida com a farmácia.',
+    assinatura: 'token-rita'
+  });
+  await gate.decidir(COFRE, {
+    decisao: 'APROVADO',
+    aprovador: 'paulo.diretoria',
+    papel: 'diretoria-administrativa',
+    justificativa: 'Segunda pessoa exigida pela faixa crítica.',
+    assinatura: 'token-paulo'
+  });
+}
+
+grupo('As janelas de vigência têm estatuto, e é SOMBRA');
+{
+  const lidas = lerJanelas();
+  igual('quatro janelas declaradas', CONSTANTES_DE_VIGENCIA.length, 4);
+  verificar('todas em sombra', lidas.emSombra);
+  igual('um aviso por janela', lidas.avisos.length, 4);
+  verificar(
+    'e o aviso diz que a janela só pode exigir revisão, nunca conceder',
+    lidas.avisos.every((a) => a.includes('nunca conceder acesso')),
+    lidas.avisos[0]
+  );
+  igual('a faixa crítica dura um plantão', JANELAS_PADRAO.CRITICA, 12 * 60);
+}
+
+grupo('A aprovação vence, e o material não mudou');
+{
+  const { gate, relogio } = bancadaDoGate();
+  await aprovarCofre(gate);
+  verificar('recém-aprovada, autoriza', gate.autorizado(COFRE));
+  const vigencia = gate.vigenciaDe(COFRE.relationshipId, COFRE.endpointId);
+  verificar('há data de expiração', vigencia.expiraEm !== null);
+  igual(
+    'doze horas depois da aprovação',
+    (vigencia.expiraEm?.getTime() ?? 0) - (vigencia.aprovadoEm?.getTime() ?? 0),
+    12 * 3_600_000
+  );
+  verificar('e o prazo sai com o aviso de sombra colado', vigencia.avisos.length === 4);
+
+  relogio.avancarHoras(11);
+  verificar('onze horas depois ainda autoriza', gate.autorizado(COFRE));
+  verificar('e não está vencida', !gate.vigenciaDe(COFRE.relationshipId, COFRE.endpointId).vencida);
+
+  relogio.avancarHoras(1);
+  verificar('no fim do plantão, não autoriza mais', !gate.autorizado(COFRE));
+  verificar('a vigência se declara vencida', gate.vigenciaDe(COFRE.relationshipId, COFRE.endpointId).vencida);
+  verificar(
+    'e a explicação diz que foi o tempo, não o material',
+    gate.explicar(COFRE).includes('mudou o tempo'),
+    gate.explicar(COFRE)
+  );
+  verificar(
+    'e nomeia quem havia aprovado',
+    gate.explicar(COFRE).includes('rita.diretoria'),
+    gate.explicar(COFRE)
+  );
+  verificar(
+    'a aprovação vencida volta para a fila de pendências',
+    gate.pedidosAbertos().length === 1
+  );
+  verificar(
+    'e o verdicto humano continua registrado como foi tomado',
+    gate.verdictoDe(COFRE.relationshipId, COFRE.endpointId)?.autorizado === true
+  );
+}
+{
+  // Numa faixa que exige duas pessoas, a janela é a que a SEGUNDA concedeu.
+  const { gate, relogio } = bancadaDoGate();
+  await gate.abrir(COFRE, 'motor');
+  await gate.decidir(COFRE, {
+    decisao: 'APROVADO',
+    aprovador: 'rita.diretoria',
+    papel: 'diretoria-tecnica',
+    justificativa: 'Primeira assinatura.',
+    assinatura: 'token-rita'
+  });
+  relogio.avancarHoras(5);
+  await gate.decidir(COFRE, {
+    decisao: 'APROVADO',
+    aprovador: 'paulo.diretoria',
+    papel: 'diretoria-administrativa',
+    justificativa: 'Segunda assinatura, cinco horas depois.',
+    assinatura: 'token-paulo'
+  });
+  const vigencia = gate.vigenciaDe(COFRE.relationshipId, COFRE.endpointId);
+  igual(
+    'o relógio começa quando o gate passou a autorizar',
+    vigencia.aprovadoEm?.toISOString() ?? '',
+    '2026-09-11T13:00:00.000Z'
+  );
+  relogio.avancarHoras(11);
+  verificar('onze horas depois da segunda, ainda vale', gate.autorizado(COFRE));
+}
+{
+  // A janela em sombra só fecha: nenhum valor dela abre o que ninguém aprovou.
+  const { gate, relogio } = bancadaDoGate();
+  await gate.abrir(COFRE, 'motor');
+  verificar('sem decisão, não autoriza agora', !gate.autorizado(COFRE));
+  relogio.avancarHoras(240);
+  verificar('nem dez dias depois', !gate.autorizado(COFRE));
+  igual(
+    'e não há vigência nenhuma a exibir',
+    gate.vigenciaDe(COFRE.relationshipId, COFRE.endpointId).expiraEm,
+    null
+  );
+}
+{
+  // Criticidade menor, janela maior — e é a do endpoint, não a do produto.
+  const { gate, relogio } = bancadaDoGate();
+  await gate.abrir(FARMACIA, 'motor');
+  await gate.decidir(FARMACIA, {
+    decisao: 'APROVADO',
+    aprovador: 'sofia.seguranca',
+    papel: 'supervisao-de-seguranca',
+    justificativa: 'Escala da semana.',
+    assinatura: 'token-sofia'
+  });
+  relogio.avancarHoras(24 * 6);
+  verificar('seis dias depois, a farmácia ainda vale', gate.autorizado(FARMACIA));
+  relogio.avancarHoras(24);
+  verificar('no sétimo, não', !gate.autorizado(FARMACIA));
+}
+
+// ---------------------------------------------------------------------------
+// A TRILHA
+// ---------------------------------------------------------------------------
+
+grupo('O ato humano entra na cadeia');
+{
+  const relogio = new RelogioFixo('2026-09-11T08:00:00');
+  const autoridade = new AutoridadeEmMemoria(ALCADAS_HOSPITALARES);
+  autoridade.credenciar('rita.diretoria', 'token-rita');
+  autoridade.credenciar('paulo.diretoria', 'token-paulo');
+  const trilha = new TrilhaDeAcesso({ relogio });
+  const diario = new DiarioNaTrilha(trilha, { organizationId: 'org-santa-casa' });
+  const gate = new GateDeAcesso(autoridade, relogio, JANELAS_PADRAO, diario);
+
+  await aprovarCofre(gate);
+  igual('um pedido e duas decisões aguardam gravação', diario.pendencias, 3);
+  igual('e todas entram na cadeia', await diario.drenar(), 3);
+
+  relogio.avancarHoras(13);
+  verificar('depois do prazo, não autoriza', !gate.autorizado(COFRE));
+  igual('o vencimento também vira ato', diario.pendencias, 1);
+  verificar('mesmo sem ator que o anuncie', (await diario.drenar()) === 1);
+  verificar('e não é anunciado duas vezes', !gate.autorizado(COFRE) && diario.pendencias === 0);
+
+  const elos = await trilha.elos();
+  igual('quatro elos ao todo', elos.length, 4);
+  const integridade = await trilha.verificarIntegridade();
+  verificar('a cadeia continua íntegra', integridade.integra, integridade.motivo);
+
+  const pedido = elos[0]!;
+  const decisao = elos[1]!;
+  const vencimento = elos[3]!;
+  igual('pedir revisão é ato consultivo', pedido.corpo, 'CONSULTIVO');
+  igual('decidir é ato humano', decisao.corpo, 'HUMANO');
+  igual('constatar vencimento é consultivo', vencimento.corpo, 'CONSULTIVO');
+  verificar(
+    'o resumo da decisão nomeia a pessoa e a alçada',
+    decisao.evento.resumo.includes('rita.diretoria') && decisao.evento.resumo.includes('alçada até CRITICA'),
+    decisao.evento.resumo
+  );
+  verificar(
+    'e liga o elo ao hash do que foi revisado',
+    decisao.evento.dados?.bundleHash === gate.verdictoDe(COFRE.relationshipId, COFRE.endpointId)?.registro.bundleHash
+  );
+  verificar(
+    'o vencimento distingue quando ocorreu de quando soubemos',
+    vencimento.evento.ocorridoEm.getTime() < vencimento.evento.registradoEm.getTime(),
+    `${vencimento.evento.ocorridoEm.toISOString()} vs ${vencimento.evento.registradoEm.toISOString()}`
+  );
+  verificar(
+    'e a pergunta "quem liberou o cofre?" tem resposta na cadeia',
+    (await trilha.porPessoa('p-rui')).some((e) => e.corpo === 'HUMANO')
+  );
 }
 
 fechar('Aprovação humana ligada ao conteúdo');

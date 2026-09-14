@@ -36,7 +36,7 @@
 | Policy Engine | `IMPLEMENTED` | fecha por omissão; conflito não se resolve sozinho; dois modos de decisão |
 | Regras hospitalares de base | `IMPLEMENTED` | vínculo, OS, turno, aprovação em área crítica, concessão por papel e por lotação |
 | Entitlement Reconciliation | `IMPLEMENTED` | GRANT / REVOKE / UPDATE_WINDOW / KEEP, com detecção de direito órfão |
-| Aprovação humana | `IMPLEMENTED` | human-gate: ligada ao hash do material, alçada do host, duas assinaturas em `CRITICA` |
+| Aprovação humana | `IMPLEMENTED` | human-gate: ligada ao hash do material, alçada do host **congelada na decisão**, duas assinaturas em `CRITICA`, **vigência por criticidade** e **os três atos na cadeia** |
 | Filtro Zero | `IMPLEMENTED` | pré-condição de entrada; fail-closed sobre declaração ausente |
 | O Freio (lacuna de cobertura) | `IMPLEMENTED` | o erro simétrico: zona de cuidado que ficaria sem ninguém |
 | Modelo de identidade e vínculo | `IMPLEMENTED` | Person, Relationship, Role, Entitlement, Credential, janela recorrente |
@@ -122,7 +122,7 @@ Nenhum destes tocou hardware real. São reproduzidos de forma determinística pe
 
 ## 8. Bateria
 
-`npm run acesso:verificar` — **380 verificações, todas passando**.
+`npm run acesso:verificar` — **427 verificações, todas passando**.
 
 | Suíte | Verificações |
 |---|---|
@@ -134,7 +134,7 @@ Nenhum destes tocou hardware real. São reproduzidos de forma determinística pe
 | Projeção de contexto e credenciais | 25 |
 | Simulador v2 e políticas de repetição | 33 |
 | Honestidade de estado | 28 |
-| Aprovação humana ligada ao conteúdo | 27 |
+| Aprovação humana: conteúdo, alçada, vigência e trilha | 74 |
 | Calibragem dos pesos do Health Score | 24 |
 | Contratos estruturais do MPE-H (com diferencial) | 49 |
 | Leitura 360° e a porta do R-VEP | 21 |
@@ -158,10 +158,18 @@ Mais três gates: `acesso:lint` (pureza — sem DOM, sem Node, `strict`,
 4. **A calibração dos pesos do Health Score é um palpite informado.** Reproduz o
    exemplo da especificação, o que prova coerência com a intenção — não que os
    pesos estejam certos para um hospital específico.
-5. **A aprovação humana ganhou estrutura, e falta operação.** Identidade, alçada
-   e ligação ao conteúdo existem; falta prazo de validade da aprovação, fluxo de
-   notificação a quem tem alçada, e a integração do `AutoridadeDoHost` com o RBAC
-   real de um aplicativo de gestão.
+5. **A aprovação humana tem registro completo, e não tem operação.** Identidade,
+   alçada congelada no instante da decisão, ligação ao conteúdo, prazo de
+   vigência e elo na cadeia existem (ADR-0016). O que falta é o que acontece
+   **em volta** do registro: nenhuma tela mostra a fila de aprovação, e por isso
+   um prazo vence sem aparecer para quem poderia renová-lo — porta fechada na
+   hora errada é o modo de falha que essa ausência produz. Falta também o fluxo
+   de notificação a quem tem alçada, e a integração do `AutoridadeDoHost` com o
+   RBAC real de um aplicativo de gestão.
+6. **As janelas de vigência estão em SOMBRA.** Doze horas na faixa crítica vêm
+   da escala 12×36; as outras três descem por proporção declarada. Enquanto
+   estiverem em sombra elas só podem exigir nova revisão — nunca conceder
+   acesso —, e é essa direção única que autoriza usá-las antes de calibrar.
 11. **O canal lexical do R-VEP não está ligado.** A porta existe e a ausência é
     declarada, mas a leitura 360° hoje opera com um canal só. Ligar o segundo
     exige Python no host e uma decisão sobre onde ele roda.

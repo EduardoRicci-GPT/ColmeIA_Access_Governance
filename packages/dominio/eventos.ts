@@ -47,7 +47,14 @@ export type TipoDeEvento =
   | 'CoverageGapDetected'
   | 'AccessAttempted'
   | 'EscalationOpened'
-  | 'EscalationResolved';
+  | 'EscalationResolved'
+  // Os três atos da aprovação humana. Estavam fora da cadeia até serem
+  // acrescentados aqui, e a ausência era a mais estranha do conjunto: a trilha
+  // existe para responder "quem tinha acesso, até quando e por quê", e o ato
+  // que CONCEDE o acesso era justamente o que não deixava elo.
+  | 'AccessApprovalRequested'
+  | 'AccessApprovalDecided'
+  | 'AccessApprovalExpired';
 
 export interface EventoDeDominio {
   id: string;

@@ -123,6 +123,13 @@ export function corpoDoTipo(tipo: TipoDeEvento): CorpoDeOrigem {
     case 'PhysicalSyncPending':
     case 'AccessAttempted':
       return 'EXECUTIVO';
+    // Pedir revisão e constatar vencimento não decidem nada: um convoca gente,
+    // o outro registra que o tempo passou. A DECISÃO é humana por definição do
+    // tipo, e por isso é declarada aqui e não só quando o evento vem carimbado
+    // com `MANUAL_OPERATOR` — um ato humano registrado sem origem continuaria
+    // sendo ato humano, e cair no `default` o esconderia como consultivo.
+    case 'AccessApprovalDecided':
+      return 'HUMANO';
     default:
       return 'CONSULTIVO';
   }

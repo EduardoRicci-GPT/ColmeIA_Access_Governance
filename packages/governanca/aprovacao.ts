@@ -19,6 +19,23 @@
 //
 // É a diferença entre uma autorização e um carimbo, que é como o próprio
 // kernel descreve o defeito que ele corrige.
+//
+// O QUE O HASH NÃO COBRE, E FOI ACRESCENTADO DEPOIS
+//
+// O hash responde "o conteúdo continuou o mesmo?". Restavam duas perguntas que
+// uma investigação hospitalar faz na mesma respiração, e que este arquivo
+// respondia mal:
+//
+//   · QUEM APROVOU, COM QUE AUTORIDADE. O aprovador e o papel já vinham na
+//     decisão, e a alçada era CONFERIDA — mas não guardada. Meses depois,
+//     quando a pergunta chega, o papel pode ter mudado de teto, e a única
+//     resposta possível seria "ele podia na época, acho". A alçada passa a ser
+//     congelada no momento da decisão, sondando a mesma porta do host faixa a
+//     faixa: o registro guarda até onde aquele papel podia decidir NAQUELE
+//     instante, e não depende de o host lembrar.
+//
+//   · ATÉ QUANDO. Enquanto o material não mudasse, a aprovação valia para
+//     sempre. Ver `vigencia.ts` — a permanência é o defeito, não a mudança.
 // ---------------------------------------------------------------------------
 
 import { abrirPedido, avaliar, selarBundle } from '../mpeh-kernel/human-gate/gate';
@@ -31,8 +48,18 @@ import {
 } from '../mpeh-kernel/human-gate/tipos';
 import { Criticidade } from '../dominio/topologia';
 import { Relogio } from '../dominio/tempo';
+import {
+  JanelasDeVigencia,
+  JANELAS_PADRAO,
+  expiracaoDe,
+  lerJanelas,
+  minutosRestantes
+} from './vigencia';
 
 export type { AutoridadeDoHost, DecisaoDeGate, PedidoDeGate, VerdictoDoGate };
+
+/** As quatro faixas, da mais baixa para a mais alta. Usada para sondar alçada. */
+const FAIXAS: readonly CriticidadeDoGate[] = Object.freeze(['BAIXA', 'MEDIA', 'ALTA', 'CRITICA']);
 
 /**
  * Criticidade do endpoint → criticidade do gate.
@@ -112,11 +139,100 @@ export const SEM_APROVACOES: ConsultaDeAprovacao = {
   explicar: () => 'Nenhuma aprovação humana registrada para este acesso.'
 };
 
+/**
+ * A autoridade de quem decidiu, congelada no instante da decisão.
+ *
+ * `ate` é o teto de criticidade que o papel alcançava então — reconstruído
+ * perguntando `podeDecidir` faixa a faixa, porque a porta do kernel devolve
+ * booleano e mudá-la seria editar o espelho. `null` significa que o papel não
+ * decidia nem a faixa mais baixa, o que só acontece em decisão recusada pelo
+ * gate — e é exatamente o caso que precisa ficar registrado.
+ */
+export interface AlcadaCongelada {
+  aprovador: string;
+  papel: string;
+  decisao: DecisaoDeGate['decisao'];
+  /** Teto do papel no momento da decisão. */
+  ate: CriticidadeDoGate | null;
+  /** Faixa que a decisão exigia. */
+  exigida: CriticidadeDoGate;
+  congeladaEm: string;
+}
+
 export interface RegistroDeAprovacao {
   pedido: PedidoDeGate;
   decisoes: DecisaoDeGate[];
   verdicto: VerdictoDoGate;
   material: string;
+  /** Autoridade de cada decisão, como era quando foi tomada. */
+  alcadas: AlcadaCongelada[];
+  /** Quando o gate passou a autorizar. `null` enquanto não autorizou. */
+  aprovadoEm: Date | null;
+  /** Quando a autorização deixa de valer sozinha. `null` quando não expira. */
+  expiraEm: Date | null;
+  /** O material como objeto, para montar o ato de auditoria sem reparsear. */
+  revisado: MaterialDeRevisao;
+  /** O vencimento já foi anunciado ao diário? Anunciar duas vezes é ruído. */
+  vencimentoAnunciado: boolean;
+}
+
+/** O estado da vigência, para a fila de pendências e para a tela. */
+export interface VigenciaDaAprovacao {
+  aprovadoEm: Date | null;
+  expiraEm: Date | null;
+  minutosRestantes: number | null;
+  vencida: boolean;
+  /** Avisos das janelas em sombra. Sai junto do prazo, nunca depois dele. */
+  avisos: readonly string[];
+}
+
+export const SEM_VIGENCIA: VigenciaDaAprovacao = Object.freeze({
+  aprovadoEm: null,
+  expiraEm: null,
+  minutosRestantes: null,
+  vencida: false,
+  avisos: Object.freeze([]) as readonly string[]
+});
+
+/**
+ * Os três atos que a aprovação humana produz, para quem quiser registrá-los.
+ *
+ * A porta existe para que o gate NÃO conheça a trilha. Governança que importa
+ * auditoria fica presa ao formato do ledger, e este produto precisa embarcar em
+ * aplicativos de gestão que já têm a sua própria trilha — é o host que decide
+ * onde o ato é gravado. O adaptador que liga esta porta ao ledger do MPE-H mora
+ * em `auditoria/diario.ts`, do lado de lá da fronteira.
+ */
+export type AtoDeAprovacao =
+  | {
+      tipo: 'PEDIDA';
+      pedido: PedidoDeGate;
+      material: MaterialDeRevisao;
+      solicitadoPor: string;
+      em: Date;
+    }
+  | {
+      tipo: 'DECIDIDA';
+      pedido: PedidoDeGate;
+      material: MaterialDeRevisao;
+      alcada: AlcadaCongelada;
+      justificativa: string;
+      autorizadoAgora: boolean;
+      em: Date;
+    }
+  | {
+      tipo: 'VENCIDA';
+      pedido: PedidoDeGate;
+      material: MaterialDeRevisao;
+      /** Quando venceu. */
+      em: Date;
+      /** Quando a ColmeIA percebeu — vencimento não tem ator que o anuncie. */
+      observadoEm: Date;
+      aprovadores: readonly string[];
+    };
+
+export interface DiarioDeAprovacao {
+  registrar(ato: AtoDeAprovacao): void;
 }
 
 /**
@@ -130,12 +246,23 @@ export interface RegistroDeAprovacao {
 export class GateDeAcesso implements ConsultaDeAprovacao {
   private readonly registros = new Map<string, RegistroDeAprovacao>();
   private readonly verdictos = new Map<string, VerdictoDoGate>();
+  private readonly avisosDeVigencia: readonly string[];
   private sequencia = 0;
 
+  /**
+   * As janelas entram por parâmetro porque são configuração de instalação — um
+   * pronto-socorro e um arquivo morto não têm a mesma noção de "até quando".
+   * O padrão são as constantes em sombra, e os avisos delas ficam guardados
+   * para sair colados no prazo em toda leitura de vigência.
+   */
   constructor(
     private readonly autoridade: AutoridadeDoHost,
-    private readonly relogio: Relogio
-  ) {}
+    private readonly relogio: Relogio,
+    private readonly janelas: JanelasDeVigencia = JANELAS_PADRAO,
+    private readonly diario?: DiarioDeAprovacao
+  ) {
+    this.avisosDeVigencia = janelas === JANELAS_PADRAO ? lerJanelas().avisos : [];
+  }
 
   /** Abre o pedido e sela o material que a pessoa vai revisar. */
   async abrir(material: MaterialDeRevisao, solicitadoPor: string): Promise<PedidoDeGate> {
@@ -154,6 +281,11 @@ export class GateDeAcesso implements ConsultaDeAprovacao {
       pedido,
       decisoes: [],
       material: conteudo,
+      alcadas: [],
+      aprovadoEm: null,
+      expiraEm: null,
+      revisado: material,
+      vencimentoAnunciado: false,
       verdicto: {
         autorizado: false,
         motivo: 'SEM_DECISAO',
@@ -165,6 +297,13 @@ export class GateDeAcesso implements ConsultaDeAprovacao {
           criticidade: pedido.criticidade
         }
       }
+    });
+    this.diario?.registrar({
+      tipo: 'PEDIDA',
+      pedido,
+      material,
+      solicitadoPor,
+      em: this.relogio.agora()
     });
     return pedido;
   }
@@ -182,12 +321,18 @@ export class GateDeAcesso implements ConsultaDeAprovacao {
           'aprovar algo que ninguém pediu é carimbo, não autorização.'
       );
     }
-    registro.decisoes.push({
+    const decididoEm = this.relogio.agora();
+    const completa: DecisaoDeGate = {
       ...decisao,
       pedidoId: registro.pedido.id,
       bundleHash: registro.pedido.bundleHash,
-      decididoEm: this.relogio.agora().toISOString()
-    });
+      decididoEm: decididoEm.toISOString()
+    };
+    registro.decisoes.push(completa);
+    // A alçada é congelada ANTES de avaliar, e vale para aprovação e recusa:
+    // a recusa de quem não tinha autoridade é um fato de auditoria tão
+    // relevante quanto a aprovação de quem tinha.
+    registro.alcadas.push(await this.congelarAlcada(completa, registro.pedido.criticidade));
     // Avalia contra o material SELADO no pedido — que é o que a pessoa viu.
     // Avaliar contra o material recebido na chamada permitiria que o chamador
     // aprovasse uma coisa apresentando outra, invertendo o gate.
@@ -199,7 +344,49 @@ export class GateDeAcesso implements ConsultaDeAprovacao {
     });
     registro.verdicto = verdicto;
     this.verdictos.set(chave, verdicto);
+    // O relógio da vigência começa quando o gate PASSA a autorizar, não quando
+    // a primeira pessoa assina: numa faixa crítica são duas, e contar da
+    // primeira daria à segunda uma janela menor do que a que ela concedeu.
+    if (verdicto.autorizado && registro.aprovadoEm === null) {
+      registro.aprovadoEm = decididoEm;
+      registro.expiraEm = expiracaoDe(decididoEm, registro.pedido.criticidade, this.janelas);
+    }
+    this.diario?.registrar({
+      tipo: 'DECIDIDA',
+      pedido: registro.pedido,
+      material: registro.revisado,
+      alcada: registro.alcadas[registro.alcadas.length - 1]!,
+      justificativa: completa.justificativa,
+      autorizadoAgora: verdicto.autorizado,
+      em: decididoEm
+    });
     return verdicto;
+  }
+
+  /**
+   * Reconstrói o teto de autoridade do papel perguntando faixa a faixa.
+   *
+   * A porta do host responde `podeDecidir(papel, criticidade)` — booleano. O
+   * teto não é perguntável diretamente, e acrescentar um método à porta seria
+   * editar o espelho do kernel, que o manifesto proíbe. Sondar as quatro
+   * faixas usa o contrato que existe e chega ao mesmo fato.
+   */
+  private async congelarAlcada(
+    decisao: DecisaoDeGate,
+    exigida: CriticidadeDoGate
+  ): Promise<AlcadaCongelada> {
+    let ate: CriticidadeDoGate | null = null;
+    for (const faixa of FAIXAS) {
+      if (await this.autoridade.podeDecidir(decisao.papel, faixa)) ate = faixa;
+    }
+    return {
+      aprovador: decisao.aprovador,
+      papel: decisao.papel,
+      decisao: decisao.decisao,
+      ate,
+      exigida,
+      congeladaEm: decisao.decididoEm
+    };
   }
 
   /**
@@ -246,7 +433,8 @@ export class GateDeAcesso implements ConsultaDeAprovacao {
     const registro = this.registros.get(chave);
     if (!registro) return false;
     if (!registro.verdicto.autorizado) return false;
-    return registro.material === serializarMaterial(material);
+    if (registro.material !== serializarMaterial(material)) return false;
+    return !this.vencido(registro);
   }
 
   explicar(material: MaterialDeRevisao): string {
@@ -259,16 +447,96 @@ export class GateDeAcesso implements ConsultaDeAprovacao {
         'não são mais os que foram aprovados. A aprovação deixou de valer sozinha.'
       );
     }
+    if (this.vencido(registro)) {
+      const quem = registro.alcadas
+        .filter((a) => a.decisao === 'APROVADO')
+        .map((a) => `${a.aprovador} (${a.papel})`)
+        .join(', ');
+      return (
+        `A vigência desta aprovação venceu em ${registro.expiraEm?.toISOString() ?? '—'}. ` +
+        `Ela foi concedida por ${quem || '—'} e continua registrada; o que caducou é o ` +
+        'poder dela de autorizar hoje. Nada no material mudou: mudou o tempo, e tempo ' +
+        'demais sem revisão é decisão que ninguém tomou. É preciso nova revisão humana.'
+      );
+    }
     return registro.verdicto.explicacao;
   }
 
+  /**
+   * Venceu? Falso quando não há prazo ou quando ainda nem foi autorizado.
+   *
+   * O vencimento é o único dos três atos SEM ator: ninguém o executa, ele
+   * acontece. Por isso o elo nasce na primeira leitura que o constata, e o
+   * evento separa as duas datas — `ocorridoEm` é quando venceu, `registradoEm`
+   * é quando a ColmeIA soube. O domínio já tinha esse par para webhook
+   * atrasado, e ele descreve este caso com a mesma precisão.
+   */
+  private vencido(registro: RegistroDeAprovacao): boolean {
+    if (registro.expiraEm === null) return false;
+    const agora = this.relogio.agora();
+    const venceu = agora.getTime() >= registro.expiraEm.getTime();
+    if (venceu && !registro.vencimentoAnunciado) {
+      registro.vencimentoAnunciado = true;
+      this.diario?.registrar({
+        tipo: 'VENCIDA',
+        pedido: registro.pedido,
+        material: registro.revisado,
+        em: registro.expiraEm,
+        observadoEm: agora,
+        aprovadores: registro.verdicto.registro.aprovadores
+      });
+    }
+    return venceu;
+  }
+
+  /**
+   * O prazo, com os avisos de sombra colados.
+   *
+   * Devolver o prazo sem os avisos permitiria a uma tela mostrar "vence às
+   * 14h40" como se fosse medida. A estrutura de retorno impede: quem exibe o
+   * prazo tem o aviso na mão, e escondê-lo passa a ser ato.
+   */
+  vigenciaDe(relationshipId: string, endpointId: string): VigenciaDaAprovacao {
+    const registro = this.registros.get(chaveDeAprovacao(relationshipId, endpointId));
+    if (!registro || registro.aprovadoEm === null) return SEM_VIGENCIA;
+    return {
+      aprovadoEm: registro.aprovadoEm,
+      expiraEm: registro.expiraEm,
+      minutosRestantes: minutosRestantes(registro.expiraEm, this.relogio.agora()),
+      vencida: this.vencido(registro),
+      avisos: this.avisosDeVigencia
+    };
+  }
+
+  /** A autoridade de cada decisão, como era no instante em que foi tomada. */
+  alcadasDe(relationshipId: string, endpointId: string): readonly AlcadaCongelada[] {
+    return this.registros.get(chaveDeAprovacao(relationshipId, endpointId))?.alcadas ?? [];
+  }
+
+  /**
+   * Responde "o que a pessoa decidiu", não "vale agora".
+   *
+   * A distinção é deliberada: o verdicto é do kernel e continua sendo o
+   * registro fiel da decisão humana, inclusive depois de vencida. Quem precisa
+   * saber se vale hoje chama `autorizado` ou `vigenciaDe` — e é por isso que o
+   * motor de reconciliação usa aquelas duas, e não esta.
+   */
   verdictoDe(relationshipId: string, endpointId: string): VerdictoDoGate | undefined {
     return this.verdictos.get(chaveDeAprovacao(relationshipId, endpointId));
   }
 
+  /**
+   * Pendências: nunca decididas E vencidas.
+   *
+   * A aprovação vencida volta para a fila porque é exatamente isso que ela
+   * virou — um pedido aguardando gente. Deixá-la fora faria o prazo derrubar
+   * acessos sem que ninguém fosse avisado de que há o que revisar, que é a
+   * forma mais eficiente de ensinar uma equipe a aumentar a janela até o
+   * infinito.
+   */
   pedidosAbertos(): readonly PedidoDeGate[] {
     return [...this.registros.values()]
-      .filter((r) => !r.verdicto.autorizado)
+      .filter((r) => !r.verdicto.autorizado || this.vencido(r))
       .map((r) => r.pedido);
   }
 

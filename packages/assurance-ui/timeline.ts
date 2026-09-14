@@ -89,7 +89,10 @@ const ROTULO: Readonly<Record<TipoDeEvento, string>> = Object.freeze({
   CoverageGapDetected: 'Zona de cuidado ficaria sem cobertura',
   AccessAttempted: 'Tentativa de acesso',
   EscalationOpened: 'Caso de escalonamento aberto',
-  EscalationResolved: 'Caso de escalonamento encerrado'
+  EscalationResolved: 'Caso de escalonamento encerrado',
+  AccessApprovalRequested: 'Aprovação humana solicitada',
+  AccessApprovalDecided: 'Decisão humana registrada',
+  AccessApprovalExpired: 'Vigência da aprovação vencida'
 });
 
 function horaCompleta(data: Date): string {
