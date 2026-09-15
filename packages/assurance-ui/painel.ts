@@ -21,6 +21,7 @@ import { avisoDeSombra } from '../observability-assurance/calibragem';
 import { RelatorioDeAssurance } from '../observability-assurance/assurance';
 import { PhysicalReconciliationResult } from '../physical-state-reconciliation/tipos';
 import { LinhaDeResumo, resumirDivergencias } from '../narrativa/resumo';
+import { PendenciaDeAprovacao } from '../governanca/aprovacao';
 import { descreverReconciliacao } from '../narrativa/honestidade';
 import { LinhaDoTempo } from './timeline';
 
@@ -80,6 +81,17 @@ export interface PainelDeAssurance {
    */
   avisoDeCalibragem: string | null;
   avisosDeCalibragem: readonly string[];
+  /**
+   * A fila de aprovação humana, ordenada por urgência de porta fechada.
+   *
+   * Estava fora desta tela até aqui, e a ausência tinha uma consequência
+   * específica: a vigência de uma aprovação podia vencer sem que ninguém que
+   * pudesse renová-la ficasse sabendo. O acesso parava de funcionar, o painel
+   * seguia verde sobre o assunto, e a descoberta acontecia na porta.
+   */
+  filaDeAprovacao: readonly PendenciaDeAprovacao[];
+  /** Ressalva das janelas em sombra, na mesma lógica do aviso de calibragem. */
+  avisoDeVigencia: string | null;
 }
 
 function cartao(health: AccessGovernanceHealth, paiId: string | null): CartaoDeEscopo {
@@ -98,10 +110,26 @@ function cartao(health: AccessGovernanceHealth, paiId: string | null): CartaoDeE
   };
 }
 
+export interface AprovacoesNaTela {
+  fila: readonly PendenciaDeAprovacao[];
+  avisos: readonly string[];
+}
+
+/** Frase curta para o alto da fila, quando há janela em sombra. */
+export function avisoDeVigenciaEmSombra(aprovacoes: AprovacoesNaTela | undefined): string | null {
+  if (!aprovacoes || aprovacoes.avisos.length === 0) return null;
+  return (
+    `Os prazos desta fila vêm de ${aprovacoes.avisos.length} janelas em SOMBRA: derivam da ` +
+    'prática de escala hospitalar, não da operação medida aqui. Elas só podem exigir nova ' +
+    'revisão — nunca conceder acesso.'
+  );
+}
+
 export function montarPainel(
   topologia: Topologia,
   relatorio: RelatorioDeAssurance,
-  timelines: readonly LinhaDoTempo[] = []
+  timelines: readonly LinhaDoTempo[] = [],
+  aprovacoes?: AprovacoesNaTela
 ): PainelDeAssurance {
   const paiPorId = new Map<string, string | null>(topologia.nos.map((no) => [no.id, no.paiId]));
   for (const endpoint of topologia.endpoints) paiPorId.set(endpoint.id, endpoint.zonaId);
@@ -140,7 +168,9 @@ export function montarPainel(
     timelines,
     incertezas: relatorio.filaDeRisco.filter((resultado) => resultado.confidence === 'UNKNOWN').length,
     avisoDeCalibragem: avisoDeSombra(relatorio.arvore.calibragem),
-    avisosDeCalibragem: relatorio.arvore.calibragem.avisos
+    avisosDeCalibragem: relatorio.arvore.calibragem.avisos,
+    filaDeAprovacao: aprovacoes?.fila ?? [],
+    avisoDeVigencia: avisoDeVigenciaEmSombra(aprovacoes)
   };
 }
 

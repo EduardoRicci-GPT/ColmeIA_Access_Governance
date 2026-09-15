@@ -23,6 +23,7 @@
 
 import { EscalationCase } from '../dominio/escalonamento';
 import { CartaoDeEscopo, ItemDaFila, PainelDeAssurance } from './painel';
+import { EstadoDaPendencia, PendenciaDeAprovacao } from '../governanca/aprovacao';
 import { LinhaDoTempo } from './timeline';
 
 function escapar(texto: string): string {
@@ -159,6 +160,21 @@ h2{font-size:13px; letter-spacing:.12em; text-transform:uppercase; font-weight:6
 .estado li::before{content:"— "; color:var(--ink-muted)}
 .porque{margin:10px 0 0; font-size:12px; color:var(--ink-muted); font-family:var(--fonte-dados)}
 
+.aprovacao{background:var(--surface); border:1px solid var(--line); border-left-width:4px; padding:14px 16px}
+.aprovacao[data-estado="VENCIDA"]{border-left-color:var(--critico)}
+.aprovacao[data-estado="AGUARDANDO_SEGUNDA_ASSINATURA"]{border-left-color:var(--atencao)}
+.aprovacao[data-estado="AGUARDANDO_DECISAO"]{border-left-color:var(--atencao)}
+.aprovacao[data-estado="RECUSADA"]{border-left-color:var(--ink-muted)}
+.aprovacao[data-estado="VIGENTE"]{border-left-color:var(--bom)}
+.aprovacao header{display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; justify-content:space-between}
+.aprovacao h3{margin:0; font-size:15.5px; font-weight:600}
+.selo.est-VENCIDA{background:var(--critico-soft); color:var(--critico)}
+.selo.est-AGUARDANDO_SEGUNDA_ASSINATURA,.selo.est-AGUARDANDO_DECISAO{background:var(--atencao-soft); color:var(--atencao)}
+.selo.est-RECUSADA{background:var(--surface-2); color:var(--ink-muted)}
+.selo.est-VIGENTE{background:var(--bom-soft); color:var(--bom)}
+.ressalva-linha{margin:0 0 16px; font-size:12.5px; color:var(--ink-muted); background:var(--incerto-soft);
+  border-left:3px solid var(--incerto); padding:10px 14px; max-width:76ch}
+
 .resumos{display:flex; flex-direction:column; gap:8px; margin:0; padding:0; list-style:none}
 .resumos li{background:var(--surface); border:1px solid var(--line); padding:12px 14px; font-size:14.5px}
 .resumos .sem-causa{color:var(--ink-muted); font-size:12.5px; display:block; margin-top:4px}
@@ -204,6 +220,50 @@ function cartaoHtml(cartao: CartaoDeEscopo, profundidade: number, aberto: boolea
         <p class="fecha">100 − ${cartao.somaDasPenalidades} = ${cartao.score}. Toda penalidade acima é um fato apurado, com evidência associada.</p>
       </div>
     </details>`;
+}
+
+/** Minutos em português, sem biblioteca e sem ambiguidade de sinal. */
+function prazoLegivel(minutos: number | null): string {
+  if (minutos === null) return 'sem prazo';
+  const absoluto = Math.abs(minutos);
+  const horas = Math.floor(absoluto / 60);
+  const resto = Math.round(absoluto % 60);
+  const medida = horas > 0 ? `${horas} h ${String(resto).padStart(2, '0')} min` : `${resto} min`;
+  return minutos < 0 ? `vencida há ${medida}` : `vence em ${medida}`;
+}
+
+const ROTULO_DO_ESTADO: Record<EstadoDaPendencia, string> = {
+  VENCIDA: 'vigência vencida',
+  AGUARDANDO_SEGUNDA_ASSINATURA: 'falta a segunda assinatura',
+  AGUARDANDO_DECISAO: 'aguardando decisão humana',
+  RECUSADA: 'recusada por humano',
+  VIGENTE: 'vigente'
+};
+
+function pendenciaHtml(item: PendenciaDeAprovacao): string {
+  // A assinatura traz a alçada DAQUELE instante, não a de hoje. É o que
+  // permite responder "essa pessoa podia?" sem depender de o cargo não ter
+  // mudado desde então.
+  const assinaturas = item.assinaturas
+    .map(
+      (a) =>
+        `<li>${escapar(a.aprovador)} <span class="mono">(${escapar(a.papel)}, alçada até ${escapar(a.ate ?? 'NENHUMA')})</span> — ${a.decisao === 'APROVADO' ? 'aprovou' : 'recusou'}</li>`
+    )
+    .join('');
+  return `
+    <article class="aprovacao" data-estado="${item.estado}">
+      <header>
+        <h3>${escapar(item.nomeDoEndpoint)}</h3>
+        <span class="mono" style="font-size:12px;color:var(--ink-muted)">${escapar(item.personId)} · ${escapar(item.zonaId)}</span>
+      </header>
+      <div class="selos">
+        <span class="selo est-${item.estado}">${ROTULO_DO_ESTADO[item.estado]}</span>
+        <span class="selo risco-${item.criticidade === 'CRITICAL' ? 'CRITICAL' : item.criticidade === 'HIGH' ? 'HIGH' : 'LOW'}">criticidade ${item.criticidade}</span>
+        <span class="selo acao mono tabular">${escapar(prazoLegivel(item.minutosRestantes))}</span>
+      </div>
+      <p class="porque">${escapar(item.explicacao)}</p>
+      ${assinaturas === '' ? '' : `<ul class="estado">${assinaturas}</ul>`}
+    </article>`;
 }
 
 function ocorrenciaHtml(item: ItemDaFila): string {
@@ -318,6 +378,11 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
       ? '<p class="vazio">Nenhuma divergência aberta neste ciclo. Todos os estados desejados têm confirmação física correspondente.</p>'
       : painel.filaDeRisco.map(ocorrenciaHtml).join('');
 
+  const aprovacoes =
+    painel.filaDeAprovacao.length === 0
+      ? '<p class="vazio">Nenhum pedido de aprovação humana neste escopo.</p>'
+      : painel.filaDeAprovacao.map(pendenciaHtml).join('');
+
   const resumos =
     painel.resumo.length === 0
       ? '<li class="vazio">Sem agrupamentos a relatar.</li>'
@@ -384,6 +449,17 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
         <div class="fila">${fila}</div>
       </div>
     </div>
+
+    <h2>Aprovação humana</h2>
+    <p class="subtitulo">Ordenada por urgência de porta fechada: vencida no topo, porque é a única que mudou
+    sem ninguém mandar. Depois o que falta assinar, e por fim o que está vigente — com o prazo à vista, que é a
+    linha que impede a próxima vencida de existir.</p>
+    ${
+      painel.avisoDeVigencia === null
+        ? ''
+        : `<p class="ressalva-linha"><strong>Ressalva de vigência.</strong> ${escapar(painel.avisoDeVigencia)}</p>`
+    }
+    <div class="fila">${aprovacoes}</div>
 
     <h2>Leitura agregada</h2>
     <p class="subtitulo">Frases compostas a partir de dados determinísticos. Causa só é atribuída quando é dedutível.</p>

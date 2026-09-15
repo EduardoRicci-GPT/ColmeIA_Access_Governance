@@ -24,6 +24,10 @@ import {
   serializarMaterial
 } from '../packages/governanca';
 import { DiarioNaTrilha, TrilhaDeAcesso } from '../packages/auditoria';
+import { PendenciaDeAprovacao } from '../packages/governanca';
+import { montarPainel } from '../packages/assurance-ui/painel';
+import { renderizarPainel } from '../packages/assurance-ui/render';
+import { montarBancada, tick } from './bancada';
 import { AutoridadeDoHost, Criticidade as CriticidadeDoGate, DecisaoDeGate } from '../packages/mpeh-kernel/human-gate/tipos';
 
 function bancadaDoGate() {
@@ -501,6 +505,204 @@ grupo('O ato humano entra na cadeia');
   verificar(
     'e a pergunta "quem liberou o cofre?" tem resposta na cadeia',
     (await trilha.porPessoa('p-rui')).some((e) => e.corpo === 'HUMANO')
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A FILA NA TELA
+// ---------------------------------------------------------------------------
+
+const ALMOXARIFADO: MaterialDeRevisao = {
+  ...COFRE,
+  endpointId: 'ep-alm-1',
+  nomeDoEndpoint: 'Almoxarifado',
+  criticidade: 'LOW',
+  razaoDaPolitica: 'Endpoint de baixa criticidade com aprovação exigida por exceção.'
+};
+
+function estados(fila: readonly PendenciaDeAprovacao[]): string[] {
+  return fila.map((p) => `${p.nomeDoEndpoint}:${p.estado}`);
+}
+
+grupo('A fila mostra o prazo antes de ele virar problema');
+{
+  const { gate, relogio } = bancadaDoGate();
+
+  // Vigente: aprovada agora, prazo correndo.
+  await gate.abrir(FARMACIA, 'motor');
+  await gate.decidir(FARMACIA, {
+    decisao: 'APROVADO',
+    aprovador: 'sofia.seguranca',
+    papel: 'supervisao-de-seguranca',
+    justificativa: 'Escala da semana.',
+    assinatura: 'token-sofia'
+  });
+  // Meia assinatura numa faixa crítica.
+  await gate.abrir(COFRE, 'motor');
+  await gate.decidir(COFRE, {
+    decisao: 'APROVADO',
+    aprovador: 'rita.diretoria',
+    papel: 'diretoria-tecnica',
+    justificativa: 'Primeira assinatura.',
+    assinatura: 'token-rita'
+  });
+  // Nunca decidida.
+  await gate.abrir(ALMOXARIFADO, 'motor');
+
+  const fila = gate.pendencias();
+  igual('três pedidos na fila', fila.length, 3);
+  verificar(
+    'a que falta assinar vem antes da que ninguém tocou',
+    estados(fila)[0] === 'Cofre de psicotrópicos:AGUARDANDO_SEGUNDA_ASSINATURA',
+    estados(fila).join(' | ')
+  );
+  igual('a vigente fecha a lista', fila[fila.length - 1]?.estado ?? '', 'VIGENTE');
+  verificar(
+    'e a vigente traz o prazo, não só o carimbo de aprovada',
+    (fila[fila.length - 1]?.minutosRestantes ?? 0) > 0,
+    String(fila[fila.length - 1]?.minutosRestantes)
+  );
+  verificar(
+    'a meia assinatura mostra quem já assinou e com que alçada',
+    fila[0]?.assinaturas[0]?.aprovador === 'rita.diretoria' && fila[0]?.assinaturas[0]?.ate === 'CRITICA',
+    JSON.stringify(fila[0]?.assinaturas)
+  );
+
+  // Oito dias depois a farmácia venceu, e a vencida sobe ao topo.
+  relogio.avancarHoras(24 * 8);
+  const depois = gate.pendencias();
+  igual('a vencida assume o topo', depois[0]?.estado ?? '', 'VENCIDA');
+  igual('e é a farmácia', depois[0]?.nomeDoEndpoint ?? '', 'Farmácia');
+  verificar(
+    'com os minutos já negativos',
+    (depois[0]?.minutosRestantes ?? 0) < 0,
+    String(depois[0]?.minutosRestantes)
+  );
+  verificar(
+    'e a explicação diz que foi o tempo',
+    (depois[0]?.explicacao ?? '').includes('mudou o tempo'),
+    depois[0]?.explicacao
+  );
+}
+{
+  // Recusa não some da tela: fica registrada, embaixo do que ainda pode andar.
+  const { gate } = bancadaDoGate();
+  await gate.abrir(FARMACIA, 'motor');
+  await gate.decidir(FARMACIA, {
+    decisao: 'RECUSADO',
+    aprovador: 'sofia.seguranca',
+    papel: 'supervisao-de-seguranca',
+    justificativa: 'Vínculo em encerramento; acesso não se justifica.',
+    assinatura: 'token-sofia'
+  });
+  const [pendencia] = gate.pendencias();
+  igual('a recusa aparece como recusa', pendencia?.estado ?? '', 'RECUSADA');
+  verificar(
+    'e preserva o nome de quem recusou',
+    pendencia?.assinaturas[0]?.decisao === 'RECUSADO' &&
+      pendencia?.assinaturas[0]?.aprovador === 'sofia.seguranca'
+  );
+}
+{
+  // Assinatura inválida deixa decisão no registro e NÃO é meio caminho andado.
+  const { gate } = bancadaDoGate();
+  await gate.abrir(COFRE, 'motor');
+  await gate.decidir(COFRE, {
+    decisao: 'APROVADO',
+    aprovador: 'rita.diretoria',
+    papel: 'diretoria-tecnica',
+    justificativa: 'Token trocado por engano.',
+    assinatura: 'token-errado'
+  });
+  const [pendencia] = gate.pendencias();
+  igual(
+    'token inválido não vira "falta a segunda"',
+    pendencia?.estado ?? '',
+    'AGUARDANDO_DECISAO'
+  );
+}
+
+grupo('Reabrir o pedido não apaga quem já assinou');
+{
+  // O defeito que esta guarda impede: o ciclo roda a cada minuto e reabre o
+  // pedido enquanto ninguém decide. Sem idempotência, cada volta criaria um
+  // registro novo por cima do anterior, e numa faixa crítica — que exige duas
+  // pessoas — a segunda nunca alcançaria a primeira.
+  const { gate } = bancadaDoGate();
+  const primeiro = await gate.abrir(COFRE, 'ciclo-de-governanca');
+  await gate.decidir(COFRE, {
+    decisao: 'APROVADO',
+    aprovador: 'rita.diretoria',
+    papel: 'diretoria-tecnica',
+    justificativa: 'Primeira assinatura, 02h40.',
+    assinatura: 'token-rita'
+  });
+
+  const reaberto = await gate.abrir(COFRE, 'ciclo-de-governanca');
+  igual('reabrir devolve o MESMO pedido', reaberto.id, primeiro.id);
+  igual('e o mesmo hash do material', reaberto.bundleHash, primeiro.bundleHash);
+  igual('a assinatura colhida continua lá', gate.alcadasDe(COFRE.relationshipId, COFRE.endpointId).length, 1);
+
+  // E a segunda pessoa chega, como chegaria na vida real.
+  const verdicto = await gate.decidir(COFRE, {
+    decisao: 'APROVADO',
+    aprovador: 'paulo.diretoria',
+    papel: 'diretoria-administrativa',
+    justificativa: 'Segunda assinatura, depois de o ciclo ter rodado várias vezes.',
+    assinatura: 'token-paulo'
+  });
+  verificar('e o gate autoriza', verdicto.autorizado, verdicto.explicacao);
+}
+{
+  // Material DIFERENTE é outro pedido: substituir é o certo, porque o que será
+  // executado deixou de ser o que foi revisado.
+  const { gate } = bancadaDoGate();
+  const primeiro = await gate.abrir(FARMACIA, 'ciclo');
+  const reclassificado: MaterialDeRevisao = { ...FARMACIA, criticidade: 'CRITICAL' };
+  const segundo = await gate.abrir(reclassificado, 'ciclo');
+  verificar('criticidade nova abre pedido novo', segundo.id !== primeiro.id);
+  verificar('com hash diferente', segundo.bundleHash !== primeiro.bundleHash);
+}
+
+grupo('O prazo chega à tela com o aviso de sombra colado');
+{
+  // Bancada real: o ciclo de governança abre o pedido do cofre sozinho, que é
+  // o caminho pelo qual a fila vai existir em produção.
+  const b = montarBancada();
+  const relatorio = await tick(b);
+
+  const painel = montarPainel(b.mundo.topologia, relatorio.assurance, [], {
+    fila: b.gate.pendencias(),
+    avisos: b.gate.avisosDaVigencia()
+  });
+  verificar('o ciclo abriu pedido e ele chega ao modelo de visão', painel.filaDeAprovacao.length > 0);
+  verificar(
+    'o aviso de vigência vem junto do prazo',
+    (painel.avisoDeVigencia ?? '').includes('SOMBRA'),
+    painel.avisoDeVigencia ?? '(nulo)'
+  );
+  verificar(
+    'dizendo que a janela só exige revisão, nunca concede',
+    (painel.avisoDeVigencia ?? '').includes('nunca conceder')
+  );
+  verificar(
+    'e a tela renderiza a seção sem quebrar',
+    renderizarPainel(painel).includes('Aprovação humana')
+  );
+  verificar(
+    'com o prazo em português, e não um número solto',
+    /vence em|vencida há|sem prazo/.test(renderizarPainel(painel))
+  );
+}
+{
+  const b = montarBancada();
+  const relatorio = await tick(b);
+  const painel = montarPainel(b.mundo.topologia, relatorio.assurance);
+  igual('sem gate passado, a fila é vazia', painel.filaDeAprovacao.length, 0);
+  igual('e não há ressalva a exibir', painel.avisoDeVigencia, null);
+  verificar(
+    'a seção existe mesmo vazia, dizendo que não há pedido',
+    renderizarPainel(painel).includes('Nenhum pedido de aprovação humana')
   );
 }
 

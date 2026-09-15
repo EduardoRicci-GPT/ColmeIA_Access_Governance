@@ -195,6 +195,101 @@ export const SEM_VIGENCIA: VigenciaDaAprovacao = Object.freeze({
 });
 
 /**
+ * O que a tela precisa saber sobre um pedido.
+ *
+ * `VIGENTE` entra na mesma lista de propósito. A tentação é listar só o que
+ * exige ação — vencidas e não decididas — e essa lista chega tarde por
+ * construção: ela só ganha a linha quando a porta JÁ parou de abrir. Quem
+ * poderia renovar precisa ver o prazo enquanto ele ainda corre, e por isso a
+ * aprovação válida aparece com os minutos restantes, ordenada pela que vence
+ * primeiro.
+ *
+ * Não há limiar de "prestes a vencer", e a ausência é deliberada: seria mais
+ * um número sem calibragem, decidindo por conta própria o que merece susto.
+ * A ordenação já põe o mais próximo no topo, e quem lê decide.
+ */
+export type EstadoDaPendencia =
+  /** Autorizada, o prazo correu até o fim, a porta parou de abrir. */
+  | 'VENCIDA'
+  /** Pedido aberto, ninguém decidiu ainda. */
+  | 'AGUARDANDO_DECISAO'
+  /** Uma pessoa assinou; a faixa crítica exige a segunda. */
+  | 'AGUARDANDO_SEGUNDA_ASSINATURA'
+  /** Um humano recusou, com justificativa. Fica à vista: recusa não é silêncio. */
+  | 'RECUSADA'
+  /** Autorizada e dentro do prazo. */
+  | 'VIGENTE';
+
+export interface AssinaturaExibida {
+  aprovador: string;
+  papel: string;
+  decisao: DecisaoDeGate['decisao'];
+  /** Teto de autoridade no instante da decisão. */
+  ate: CriticidadeDoGate | null;
+}
+
+export interface PendenciaDeAprovacao {
+  pedidoId: string;
+  personId: string;
+  relationshipId: string;
+  endpointId: string;
+  nomeDoEndpoint: string;
+  zonaId: string;
+  criticidade: Criticidade;
+  estado: EstadoDaPendencia;
+  /** Frase determinística, pronta para a tela. Nunca gerada por modelo. */
+  explicacao: string;
+  abertoEm: Date;
+  aprovadoEm: Date | null;
+  expiraEm: Date | null;
+  /** Negativo depois de vencida; `null` quando não há prazo. */
+  minutosRestantes: number | null;
+  assinaturas: readonly AssinaturaExibida[];
+}
+
+const ORDEM_DE_CRITICIDADE: Record<Criticidade, number> = {
+  LOW: 0,
+  MEDIUM: 1,
+  HIGH: 2,
+  CRITICAL: 3
+};
+
+/** Quem chega primeiro na tela. Menor é mais acima. */
+const ORDEM_DO_ESTADO: Record<EstadoDaPendencia, number> = {
+  VENCIDA: 0,
+  AGUARDANDO_SEGUNDA_ASSINATURA: 1,
+  AGUARDANDO_DECISAO: 2,
+  RECUSADA: 3,
+  VIGENTE: 4
+};
+
+/**
+ * A ordem da fila, que é a decisão de produto desta tela.
+ *
+ * Vencida no topo porque é a única que MUDOU sem ninguém mandar: ontem abria,
+ * hoje não abre, e o operador não foi avisado. Entre vencidas, a que venceu há
+ * mais tempo lidera — é a que tem gente esperando há mais tempo.
+ *
+ * Segunda assinatura vem antes de "aguardando decisão" porque já há alguém
+ * comprometido: falta uma pessoa, não duas, e o custo de concluir é metade.
+ *
+ * Vigentes fecham a lista, ordenadas pela que vence primeiro — que é a linha
+ * que impede a próxima vencida de existir.
+ */
+export function compararPendencias(a: PendenciaDeAprovacao, b: PendenciaDeAprovacao): number {
+  const porEstado = ORDEM_DO_ESTADO[a.estado] - ORDEM_DO_ESTADO[b.estado];
+  if (porEstado !== 0) return porEstado;
+  if (a.estado === 'VENCIDA' || a.estado === 'VIGENTE') {
+    const ma = a.minutosRestantes ?? Number.POSITIVE_INFINITY;
+    const mb = b.minutosRestantes ?? Number.POSITIVE_INFINITY;
+    if (ma !== mb) return ma - mb;
+  }
+  const porCriticidade = ORDEM_DE_CRITICIDADE[b.criticidade] - ORDEM_DE_CRITICIDADE[a.criticidade];
+  if (porCriticidade !== 0) return porCriticidade;
+  return a.abertoEm.getTime() - b.abertoEm.getTime();
+}
+
+/**
  * Os três atos que a aprovação humana produz, para quem quiser registrá-los.
  *
  * A porta existe para que o gate NÃO conheça a trilha. Governança que importa
@@ -264,8 +359,22 @@ export class GateDeAcesso implements ConsultaDeAprovacao {
     this.avisosDeVigencia = janelas === JANELAS_PADRAO ? lerJanelas().avisos : [];
   }
 
-  /** Abre o pedido e sela o material que a pessoa vai revisar. */
+  /**
+   * Abre o pedido e sela o material que a pessoa vai revisar.
+   *
+   * IDEMPOTENTE sobre material idêntico, e isso não é conveniência: o ciclo de
+   * governança roda a cada minuto e reabre o pedido enquanto ninguém decidir.
+   * Sem esta guarda, cada ciclo criaria um registro novo por cima do anterior
+   * e APAGARIA a primeira assinatura — numa faixa crítica, que exige duas, a
+   * segunda pessoa nunca chegaria, porque a primeira seria esquecida a cada
+   * volta do relógio. O pedido só é substituído quando o material MUDA, e aí
+   * substituir é o certo: o que será executado deixou de ser o que foi
+   * revisado, e a aprovação antiga já não valia pelo hash.
+   */
   async abrir(material: MaterialDeRevisao, solicitadoPor: string): Promise<PedidoDeGate> {
+    const chaveExistente = chaveDeAprovacao(material.relationshipId, material.endpointId);
+    const jaAberto = this.registros.get(chaveExistente);
+    if (jaAberto && jaAberto.material === serializarMaterial(material)) return jaAberto.pedido;
     this.sequencia += 1;
     const conteudo = serializarMaterial(material);
     const pedido = await abrirPedido({
@@ -538,6 +647,63 @@ export class GateDeAcesso implements ConsultaDeAprovacao {
     return [...this.registros.values()]
       .filter((r) => !r.verdicto.autorizado || this.vencido(r))
       .map((r) => r.pedido);
+  }
+
+  /**
+   * A fila da tela: TODO pedido que já existiu, com estado e prazo.
+   *
+   * Difere de `pedidosAbertos()` de propósito. Aquele responde "o que precisa
+   * de gente AGORA" e é o que o motor consulta; este responde "o que uma
+   * pessoa precisa ver", e inclui as aprovações válidas justamente porque o
+   * prazo delas é a informação que evita a próxima vencida.
+   */
+  pendencias(): readonly PendenciaDeAprovacao[] {
+    const agora = this.relogio.agora();
+    return [...this.registros.values()]
+      .map((registro) => {
+        const vencida = this.vencido(registro);
+        const estado: EstadoDaPendencia = registro.verdicto.autorizado
+          ? vencida
+            ? 'VENCIDA'
+            : 'VIGENTE'
+          : registro.verdicto.motivo === 'RECUSADO_PELO_HUMANO'
+            ? 'RECUSADA'
+            : // Só é "falta a segunda" quando o kernel diz que faltam
+              // aprovações. Assinatura inválida ou aprovador sem alçada
+              // TAMBÉM deixam decisões no registro, e chamá-las de segunda
+              // assinatura pendente diria à tela que há meio caminho andado
+              // onde não há nenhum.
+              registro.verdicto.motivo === 'APROVACOES_INSUFICIENTES'
+              ? 'AGUARDANDO_SEGUNDA_ASSINATURA'
+              : 'AGUARDANDO_DECISAO';
+        return {
+          pedidoId: registro.pedido.id,
+          personId: registro.revisado.personId,
+          relationshipId: registro.revisado.relationshipId,
+          endpointId: registro.revisado.endpointId,
+          nomeDoEndpoint: registro.revisado.nomeDoEndpoint,
+          zonaId: registro.revisado.zonaId,
+          criticidade: registro.revisado.criticidade,
+          estado,
+          explicacao: vencida ? this.explicar(registro.revisado) : registro.verdicto.explicacao,
+          abertoEm: new Date(registro.pedido.criadoEm),
+          aprovadoEm: registro.aprovadoEm,
+          expiraEm: registro.expiraEm,
+          minutosRestantes: minutosRestantes(registro.expiraEm, agora),
+          assinaturas: registro.alcadas.map((alcada) => ({
+            aprovador: alcada.aprovador,
+            papel: alcada.papel,
+            decisao: alcada.decisao,
+            ate: alcada.ate
+          }))
+        } satisfies PendenciaDeAprovacao;
+      })
+      .sort(compararPendencias);
+  }
+
+  /** Os avisos das janelas em sombra, para saírem colados na fila. */
+  avisosDaVigencia(): readonly string[] {
+    return this.avisosDeVigencia;
   }
 
   /** Conteúdo exato submetido à revisão — a prova de o que foi mostrado. */

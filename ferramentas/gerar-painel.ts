@@ -67,7 +67,10 @@ for (const credencial of ['CRED-vin-marina-ep-farm-2', 'CRED-vin-rui-ep-seg-1'])
   timelines.push(construirLinhaDoTempo(credencial, elos, integridade));
 }
 
-const painel = montarPainel(bancada.mundo.topologia, relatorio.assurance, timelines);
+const painel = montarPainel(bancada.mundo.topologia, relatorio.assurance, timelines, {
+  fila: bancada.gate.pendencias(),
+  avisos: bancada.gate.avisosDaVigencia()
+});
 const html = renderizarPainel(painel, { documentoCompleto: true });
 
 mkdirSync(path.dirname(destino), { recursive: true });
@@ -83,6 +86,14 @@ console.log(`  Escopos avaliados: ${painel.escopos.length}`);
 console.log(`  Divergências na fila: ${painel.filaDeRisco.length}`);
 console.log(`  Itens sem evidência física: ${painel.incertezas}`);
 console.log(`  Casos de escalonamento abertos: ${painel.casos.length}`);
+console.log(`  Fila de aprovação: ${painel.filaDeAprovacao.length} pedido(s)`);
+for (const pendencia of painel.filaDeAprovacao) {
+  const prazo =
+    pendencia.minutosRestantes === null
+      ? 'sem prazo'
+      : `${Math.round(pendencia.minutosRestantes)} min restantes`;
+  console.log(`    · ${pendencia.nomeDoEndpoint} — ${pendencia.estado} (${prazo})`);
+}
 console.log(
   `  Cadeia de auditoria: ${integridade.total} elo(s), ${integridade.integra ? 'ÍNTEGRA' : 'ROMPIDA'}`
 );

@@ -179,7 +179,18 @@ async function h10(): Promise<void> {
   verificar('uma assinatura não autoriza', !comUma.autorizado, comUma.motivo);
   igual('e o motivo é nomeado', comUma.motivo, 'APROVACOES_INSUFICIENTES');
 
-  const comDuas = await aprovarCofre(b, material);
+  // Só falta a SEGUNDA pessoa. Este teste assinava de novo pela primeira e
+  // funcionava porque `abrir` recriava o registro do zero, apagando a
+  // assinatura anterior — hoje `abrir` é idempotente (o ciclo o chama a cada
+  // volta, e apagar assinatura colhida seria o defeito), então o que resta
+  // aqui é o que resta na vida real: alguém diferente assinar.
+  const comDuas = await b.gate.decidir(material, {
+    decisao: 'APROVADO',
+    aprovador: 'paulo.diretoria',
+    papel: 'diretoria-administrativa',
+    justificativa: 'Segunda aprovação, por pessoa distinta.',
+    assinatura: 'token-paulo'
+  });
   verificar('duas assinaturas autorizam', comDuas.autorizado, comDuas.explicacao);
   igual('e a segunda é de outra pessoa', comDuas.registro.aprovadores.length, 2);
 

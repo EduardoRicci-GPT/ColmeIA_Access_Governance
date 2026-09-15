@@ -11,7 +11,8 @@
 | 2 | Documentação Control iD do modo online e da leitura da base local | decide se a reconciliação física ativa é possível neste fabricante — o que muda a estratégia de assurance para catracas |
 | 3 | Adaptador PostgreSQL contra a suíte já existente | tira o produto da memória de processo; expõe concorrência e volume |
 | 4 | ~~Aprovação humana completa: identidade, alçada, prazo, trilha~~ — **feito**, ADR-0016 | o registro responde quem aprovou, com que alçada naquele instante, até quando vale, e deixa elo na cadeia |
-| 5 | Fila de aprovação na tela, com o prazo à vista | `pedidosAbertos()` já devolve as vencidas junto das nunca decididas, e nenhum painel consome isso — um prazo que vence sem aparecer a quem poderia renovar produz porta fechada na hora errada |
+| 5 | ~~Fila de aprovação na tela, com o prazo à vista~~ — **feito**, ADR-0017 | a fila aparece ordenada por urgência de porta fechada, o ciclo passou a abrir o pedido que a política exigiu (ninguém abria), e a vigente entra na lista com o prazo à vista |
+| 5b | Notificação de quem tem alçada | a fila aparece para quem abre a tela; um prazo ainda pode vencer de madrugada sem ninguém ver. Quem é acordado, por qual canal, com qual escalonamento se ninguém responde |
 
 ## Depois — destrava a implantação
 

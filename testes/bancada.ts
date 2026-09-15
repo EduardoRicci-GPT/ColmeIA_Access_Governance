@@ -243,7 +243,10 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     registros,
     entitlements,
     syncJobs,
-    trilha
+    trilha,
+    // O ciclo abre o pedido que a política exigiu; decidir continua sendo ato
+    // humano, por `aprovarCofre()`.
+    aberturaDeAprovacao: gate
   });
 
   const mundo: MundoLogico = {
@@ -297,6 +300,8 @@ export async function tick(bancada: Bancada, avancoMs = 0) {
  * precise revogá-la.
  */
 export async function aprovarCofre(bancada: Bancada, material: MaterialDeRevisao) {
+  // O pedido já foi aberto pelo ciclo; `abrir` aqui é idempotente e serve para
+  // a bancada funcionar mesmo num cenário que não tenha rodado um tick antes.
   await bancada.gate.abrir(material, 'ciclo-de-governanca');
   await bancada.gate.decidir(material, {
     decisao: 'APROVADO',

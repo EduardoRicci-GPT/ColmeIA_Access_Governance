@@ -43,6 +43,7 @@ import {
   RepositorioDeRegistrosDeAcesso,
   RepositorioDeSyncJobs
 } from '../persistencia/repositorios';
+import { MaterialDeRevisao } from '../governanca/aprovacao';
 import { chaveDeIdempotencia, correlacaoDeCredencial } from './idempotencia';
 import {
   AvaliacaoDoFreioDeAcesso,
@@ -63,6 +64,23 @@ export interface DependenciasDoCiclo {
   /** A auditoria é uma cadeia encadeada por hash, não uma lista. */
   trilha: TrilhaDeAcesso;
   retry?: PoliticaDeRetry;
+  /**
+   * Quem abre o pedido de aprovação humana.
+   *
+   * Existe porque faltava: a política marcava `REQUIRE_APPROVAL`, o motor
+   * mantinha o direito em KEEP e ninguém abria o pedido que uma pessoa
+   * decidiria. O gate só via pedido em teste — em produção a fila nasceria
+   * vazia para sempre, e a exigência de revisão humana viraria uma negativa
+   * silenciosa: acesso que nunca vem, sem ninguém a quem recorrer.
+   *
+   * A porta é estreita de propósito. O ciclo abre; quem decide é gente, por
+   * outro caminho.
+   */
+  aberturaDeAprovacao?: AberturaDePedidoDeAprovacao;
+}
+
+export interface AberturaDePedidoDeAprovacao {
+  abrir(material: MaterialDeRevisao, solicitadoPor: string): Promise<unknown>;
 }
 
 /**
@@ -122,6 +140,18 @@ export class CicloDeGovernanca {
     const freio = this.avaliarFreio(mundo, logica.acoes);
     if (freio.zonasDescobertas.length > 0) {
       this.registrarLacunaDeCobertura(mundo, freio, eventosDoCiclo);
+    }
+
+    // 1.75. O que a política mandou um humano decidir vira pedido de fato.
+    //
+    // Sem este passo o REQUIRE_APPROVAL ficava só no relatório do ciclo, e a
+    // fila que uma pessoa abriria estava sempre vazia. `abrir` é idempotente
+    // sobre material idêntico, então repetir a cada ciclo não apaga assinatura
+    // já colhida.
+    if (this.deps.aberturaDeAprovacao) {
+      for (const pendente of logica.pendentesDeAprovacao) {
+        await this.deps.aberturaDeAprovacao.abrir(pendente.material, 'ciclo-de-governanca');
+      }
     }
 
     // 2. Materialização.

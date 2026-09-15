@@ -122,7 +122,7 @@ Nenhum destes tocou hardware real. São reproduzidos de forma determinística pe
 
 ## 8. Bateria
 
-`npm run acesso:verificar` — **427 verificações, todas passando**.
+`npm run acesso:verificar` — **453 verificações, todas passando**.
 
 | Suíte | Verificações |
 |---|---|
@@ -134,7 +134,7 @@ Nenhum destes tocou hardware real. São reproduzidos de forma determinística pe
 | Projeção de contexto e credenciais | 25 |
 | Simulador v2 e políticas de repetição | 33 |
 | Honestidade de estado | 28 |
-| Aprovação humana: conteúdo, alçada, vigência e trilha | 74 |
+| Aprovação humana: conteúdo, alçada, vigência, trilha e fila | 100 |
 | Calibragem dos pesos do Health Score | 24 |
 | Contratos estruturais do MPE-H (com diferencial) | 49 |
 | Leitura 360° e a porta do R-VEP | 21 |
@@ -158,14 +158,15 @@ Mais três gates: `acesso:lint` (pureza — sem DOM, sem Node, `strict`,
 4. **A calibração dos pesos do Health Score é um palpite informado.** Reproduz o
    exemplo da especificação, o que prova coerência com a intenção — não que os
    pesos estejam certos para um hospital específico.
-5. **A aprovação humana tem registro completo, e não tem operação.** Identidade,
+5. **A aprovação humana tem registro e tela; falta quem avise.** Identidade,
    alçada congelada no instante da decisão, ligação ao conteúdo, prazo de
-   vigência e elo na cadeia existem (ADR-0016). O que falta é o que acontece
-   **em volta** do registro: nenhuma tela mostra a fila de aprovação, e por isso
-   um prazo vence sem aparecer para quem poderia renová-lo — porta fechada na
-   hora errada é o modo de falha que essa ausência produz. Falta também o fluxo
-   de notificação a quem tem alçada, e a integração do `AutoridadeDoHost` com o
-   RBAC real de um aplicativo de gestão.
+   vigência e elo na cadeia (ADR-0016); fila na tela, ordenada por urgência de
+   porta fechada, e o ciclo abrindo o pedido que a política exigiu (ADR-0017).
+   O que falta agora é **notificação**: a fila aparece para quem abrir a tela, e
+   um prazo ainda pode vencer de madrugada sem ninguém ver. Falta também a
+   integração do `AutoridadeDoHost` com o RBAC real de um aplicativo de gestão,
+   e aprovar pela própria tela — que exige decidir como a sessão autenticada do
+   host chega ao gate.
 6. **As janelas de vigência estão em SOMBRA.** Doze horas na faixa crítica vêm
    da escala 12×36; as outras três descem por proporção declarada. Enquanto
    estiverem em sombra elas só podem exigir nova revisão — nunca conceder
