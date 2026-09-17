@@ -33,6 +33,7 @@ import {
   MaterialDeRevisao
 } from '../governanca/aprovacao';
 import { AtoDeAviso, DiarioDeAviso } from '../governanca/plantao';
+import { AtoDeResponsabilidade, DiarioDeResponsabilidade } from '../governanca/responsabilidade';
 import { EventoDeDominio } from '../dominio/eventos';
 import { TrilhaDeAcesso } from './trilha';
 
@@ -118,7 +119,41 @@ function resumoDoAviso(ato: AtoDeAviso): string {
     : `${cabeca}. NÃO entregue: ${ato.entrega.detalhe}`;
 }
 
-export class DiarioNaTrilha implements DiarioDeAprovacao, DiarioDeAviso {
+/** Frase determinística para os quatro atos da exceção operacional. */
+function resumoDaResponsabilidade(ato: AtoDeResponsabilidade): string {
+  switch (ato.tipo) {
+    case 'PEDIDA':
+      return (
+        `Exceção operacional solicitada para ${ato.pedido.personId} em ` +
+        `${ato.pedido.zonaId}: ${ato.pedido.tipo} por ${ato.pedido.motivo}, ` +
+        `${ato.pedido.duracaoMinutos} min. Competência informada: ${ato.pedido.competencia}.`
+      );
+    case 'RECUSADA':
+      return `${ato.decididoPor} recusou a exceção (${ato.recusa}). ${ato.explicacao}`;
+    case 'CONCEDIDA': {
+      const r = ato.responsabilidade;
+      const corte = ato.duracaoReduzida ? ' Prazo reduzido pelo teto do escopo.' : '';
+      return (
+        `${r.concedidaPor} designou ${r.tipo} para ${r.personId} em ${r.zonaId}, ` +
+        `por ${r.motivo}, até ${r.validaAte.toISOString()}.${corte} ` +
+        `Competência na concessão: ${r.competenciaNaConcessao}.`
+      );
+    }
+    case 'ENCERRADA': {
+      const r = ato.responsabilidade;
+      return ato.causa === 'VENCIMENTO'
+        ? `A responsabilidade temporária de ${r.personId} em ${r.zonaId} venceu. ` +
+            'Ninguém a encerrou: o prazo acabou, e os direitos derivados dela caem ' +
+            'na próxima reconciliação.'
+        : `${r.encerradaPor ?? '—'} encerrou antes do prazo a responsabilidade de ` +
+            `${r.personId} em ${r.zonaId}. O apoio terminou; os direitos também.`;
+    }
+  }
+}
+
+export class DiarioNaTrilha
+  implements DiarioDeAprovacao, DiarioDeAviso, DiarioDeResponsabilidade
+{
   private readonly pendentes: EventoDeDominio[] = [];
   private sequencia = 0;
 
@@ -229,6 +264,76 @@ export class DiarioNaTrilha implements DiarioDeAprovacao, DiarioDeAviso {
         referencia: ato.entrega.referencia
       },
       resumo: resumoDoAviso(ato)
+    });
+  }
+
+  /**
+   * Os atos da exceção operacional.
+   *
+   * Os quatro entram, inclusive a recusa: a tentativa de designar fora do
+   * escopo é fato de auditoria tão relevante quanto a designação legítima — e
+   * frequentemente mais, porque é ali que se vê alguém procurando a porta
+   * lateral.
+   */
+  registrarResponsabilidade(ato: AtoDeResponsabilidade): void {
+    this.sequencia += 1;
+    const prefixo = this.opcoes.prefixoDeId ?? 'APROV';
+    const id = `${prefixo}-${String(this.sequencia).padStart(5, '0')}`;
+    const tipo =
+      ato.tipo === 'PEDIDA'
+        ? 'TemporaryResponsibilityRequested'
+        : ato.tipo === 'RECUSADA'
+          ? 'TemporaryResponsibilityDenied'
+          : ato.tipo === 'CONCEDIDA'
+            ? 'TemporaryResponsibilityGranted'
+            : 'TemporaryResponsibilityEnded';
+
+    const alvo = ato.tipo === 'PEDIDA' || ato.tipo === 'RECUSADA' ? ato.pedido : ato.responsabilidade;
+    const ocorridoEm = ato.em;
+    const registradoEm = ato.tipo === 'ENCERRADA' ? ato.observadoEm : ato.em;
+
+    this.pendentes.push({
+      id,
+      tipo,
+      ocorridoEm,
+      registradoEm,
+      origemDeIngestao: 'LOCAL_EVENT',
+      // Só designar e recusar têm ator humano. Pedir é o sistema convocando; o
+      // vencimento não é decisão de ninguém.
+      decisionOrigin:
+        ato.tipo === 'CONCEDIDA' || ato.tipo === 'RECUSADA' ? 'MANUAL_OPERATOR' : undefined,
+      idempotencyKey: `${alvo.id}::${tipo}`,
+      organizationId: this.opcoes.organizationId,
+      facilityId: alvo.facilityId,
+      personId: alvo.personId,
+      dados: {
+        zonaId: alvo.zonaId,
+        tipoDeResponsabilidade: alvo.tipo,
+        ...(ato.tipo === 'PEDIDA' || ato.tipo === 'RECUSADA'
+          ? {
+              pedidoId: ato.pedido.id,
+              motivo: ato.pedido.motivo,
+              competencia: ato.pedido.competencia,
+              duracaoPedidaMinutos: ato.pedido.duracaoMinutos
+            }
+          : {}),
+        ...(ato.tipo === 'RECUSADA'
+          ? { recusa: ato.recusa, decididoPor: ato.decididoPor }
+          : {}),
+        ...(ato.tipo === 'CONCEDIDA' || ato.tipo === 'ENCERRADA'
+          ? {
+              responsabilidadeId: ato.responsabilidade.id,
+              concedidaPor: ato.responsabilidade.concedidaPor,
+              escopoId: ato.responsabilidade.escopoId,
+              motivo: ato.responsabilidade.motivo,
+              competenciaNaConcessao: ato.responsabilidade.competenciaNaConcessao,
+              validaDe: ato.responsabilidade.validaDe.toISOString(),
+              validaAte: ato.responsabilidade.validaAte.toISOString()
+            }
+          : {}),
+        ...(ato.tipo === 'ENCERRADA' ? { causa: ato.causa } : {})
+      },
+      resumo: resumoDaResponsabilidade(ato)
     });
   }
 

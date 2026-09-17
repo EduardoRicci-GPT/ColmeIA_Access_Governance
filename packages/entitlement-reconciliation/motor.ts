@@ -30,6 +30,11 @@ import { Relogio } from '../dominio/tempo';
 import { AtributosDeContexto, DecisaoDePolitica, PedidoDeDecisao } from '../policy-engine/tipos';
 import { PolicyEngine } from '../policy-engine/motor';
 import { ConsultaDeAprovacao, MaterialDeRevisao, SEM_APROVACOES } from '../governanca/aprovacao';
+import {
+  ConsultaDeResponsabilidades,
+  SEM_RESPONSABILIDADES,
+  dentroDoTeto
+} from '../governanca/responsabilidade';
 import { AfetadosPelaDecisao } from '../contratos-estruturais/filtro-zero';
 
 export interface MundoLogico {
@@ -68,6 +73,45 @@ export interface MundoLogico {
    * pré-condição não respondida nunca é preenchida por suposição.
    */
   afetados?: Partial<AfetadosPelaDecisao>;
+  /**
+   * As responsabilidades temporárias vigentes.
+   *
+   * Entram AO LADO da lotação do vínculo, nunca dentro dela. O RH continua
+   * dizendo a verdade do RH: a auxiliar segue lotada na Clínica Médica mesmo
+   * enquanto apoia a UTI. Reescrever `unidadesLotadas` faria o sistema mentir
+   * sobre o cadastro para conseguir um efeito de política — e o efeito se
+   * obtém sem mentir.
+   *
+   * Ausente significa nenhuma responsabilidade temporária. Fecha por omissão.
+   */
+  responsabilidades?: ConsultaDeResponsabilidades;
+}
+
+/**
+ * As zonas temporárias que valem PARA ESTE ENDPOINT.
+ *
+ * O filtro por criticidade é o "acesso mínimo necessário" do desenho: o
+ * supervisor da UTI designa apoio à UTI, e isso não deve arrastar junto o
+ * armário de psicotrópicos que fica na mesma zona. O teto do escopo decide até
+ * onde a designação alcança — e, acima dele, a porta simplesmente não entra na
+ * conta.
+ *
+ * Note o que este filtro NÃO faz: ele não substitui o gate. Um endpoint
+ * CRITICAL dentro do teto continua exigindo aprovação humana pelo caminho
+ * normal. Designar responsabilidade abre a discussão; não a encerra.
+ */
+function zonasTemporariasDoEndpoint(
+  mundo: MundoLogico,
+  vinculo: Relationship,
+  endpoint: Endpoint,
+  agora: Date
+): readonly string[] {
+  const consulta = mundo.responsabilidades ?? SEM_RESPONSABILIDADES;
+  return consulta.zonasDe(vinculo.id, agora).filter((zona) => {
+    if (zona !== endpoint.zonaId) return false;
+    const teto = consulta.tetoDeCriticidade(vinculo.id, zona, agora);
+    return teto !== null && dentroDoTeto(endpoint.criticidade, teto);
+  });
 }
 
 export type TipoDeAcao = 'GRANT' | 'REVOKE' | 'UPDATE_WINDOW' | 'KEEP';
@@ -145,7 +189,10 @@ export function montarContexto(
     criticidadeDoEndpoint: endpoint.criticidade,
     restricaoDaZona: mundo.restricoesPorZona?.[endpoint.zonaId],
     papeis: vinculo.roleIds,
-    unidadesLotadas: vinculo.unidadesLotadas,
+    unidadesLotadas: [
+      ...vinculo.unidadesLotadas,
+      ...zonasTemporariasDoEndpoint(mundo, vinculo, endpoint, agora)
+    ],
     zonasAutorizadas: zonasDosPapeis(mundo.papeis, vinculo.roleIds),
     vinculoVigente: vinculoVigente(vinculo, agora),
     turnoVigente: vinculo.escala ? turnoVigente(vinculo.escala, agora) : true,
@@ -289,9 +336,15 @@ export class EntitlementReconciliationEngine {
     vinculo: Relationship,
     endpointsPorId: ReadonlyMap<string, Endpoint>
   ): readonly Endpoint[] {
+    // A zona designada entra entre os candidatos sem filtro de criticidade: o
+    // corte fino acontece em `montarContexto`, por endpoint. Alargar a
+    // varredura é inofensivo; estreitá-la cedo demais faria um direito escapar
+    // da reconciliação por ter deixado de ser candidato — que é exatamente o
+    // defeito que esta função existe para evitar.
     const zonas = new Set<string>([
       ...zonasDosPapeis(mundo.papeis, vinculo.roleIds),
-      ...vinculo.unidadesLotadas
+      ...vinculo.unidadesLotadas,
+      ...(mundo.responsabilidades ?? SEM_RESPONSABILIDADES).zonasDe(vinculo.id, this.relogio.agora())
     ]);
     const selecionados = new Map<string, Endpoint>();
     for (const endpoint of mundo.topologia.endpoints) {

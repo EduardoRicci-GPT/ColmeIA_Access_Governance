@@ -129,6 +129,11 @@ export function corpoDoTipo(tipo: TipoDeEvento): CorpoDeOrigem {
     // com `MANUAL_OPERATOR` — um ato humano registrado sem origem continuaria
     // sendo ato humano, e cair no `default` o esconderia como consultivo.
     case 'AccessApprovalDecided':
+    // Designar e recusar são atos de uma pessoa com alçada, como decidir uma
+    // aprovação. Pedir é o sistema convocando gente, e encerrar por vencimento
+    // não é decisão de ninguém — os dois caem no consultivo, corretamente.
+    case 'TemporaryResponsibilityGranted':
+    case 'TemporaryResponsibilityDenied':
       return 'HUMANO';
     default:
       return 'CONSULTIVO';

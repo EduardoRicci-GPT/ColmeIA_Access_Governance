@@ -60,7 +60,14 @@ export type TipoDeEvento =
   // deixar rastro de que a fila venceu sem ninguém ser acordado, senão a
   // ausência de aviso vira a única parte da operação sem registro.
   | 'AccessApprovalNotified'
-  | 'AccessApprovalNotificationUndelivered';
+  | 'AccessApprovalNotificationUndelivered'
+  // A exceção operacional. O hospital não funciona só pela escala formal, e o
+  // remanejamento legítimo precisa deixar rastro — senão continua sendo
+  // resolvido fora do sistema, que é onde ele não pode ser auditado.
+  | 'TemporaryResponsibilityRequested'
+  | 'TemporaryResponsibilityDenied'
+  | 'TemporaryResponsibilityGranted'
+  | 'TemporaryResponsibilityEnded';
 
 export interface EventoDeDominio {
   id: string;

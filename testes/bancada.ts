@@ -16,10 +16,12 @@ import {
   ALCADAS_HOSPITALARES,
   AutoridadeEmMemoria,
   CanalEmMemoria,
+  EscopoDeDelegacao,
   GateDeAcesso,
   JANELAS_PADRAO,
   MaterialDeRevisao,
-  PlantaoDeAprovacao
+  PlantaoDeAprovacao,
+  RegistroDeResponsabilidades
 } from '../packages/governanca';
 import { Endpoint, Gateway, NoDeHierarquia, ProviderConnection, Topologia } from '../packages/dominio/topologia';
 import { Person, Relationship, Role } from '../packages/dominio/entitlement';
@@ -190,6 +192,39 @@ export function vinculosIniciais(): Relationship[] {
   ];
 }
 
+/**
+ * Escopos de delegação de referência.
+ *
+ * Note o que a supervisão da UTI NÃO alcança: a Área de Segurança Excepcional
+ * (CRITICAL) e o Datacenter. Um mecanismo de exceção sem limite é o caminho
+ * mais curto para contornar toda a política — bastaria um supervisor
+ * complacente para que qualquer pessoa chegasse a qualquer lugar.
+ */
+export const ESCOPOS_DE_DELEGACAO: readonly EscopoDeDelegacao[] = Object.freeze([
+  {
+    id: 'escopo-supervisao-uti',
+    autoridade: 'sofia.seguranca',
+    organizationId: 'org-sinergentia',
+    facilityId: 'hosp-aurora',
+    zonas: ['z-uti'],
+    tiposPermitidos: ['APOIO_ASSISTENCIAL', 'COBERTURA_TEMPORARIA', 'APOIO_EMERGENCIAL'],
+    duracaoMaximaMinutos: 12 * 60,
+    criticidadeMaxima: 'HIGH'
+  },
+  {
+    id: 'escopo-facilities',
+    autoridade: 'paulo.diretoria',
+    organizationId: 'org-sinergentia',
+    facilityId: 'hosp-aurora',
+    zonas: ['z-uti', 'z-farmacia', 'z-admin', 'z-datacenter'],
+    tiposPermitidos: ['APOIO_TECNICO', 'COBERTURA_TEMPORARIA'],
+    duracaoMaximaMinutos: 4 * 60,
+    criticidadeMaxima: 'HIGH',
+    // Mesmo dentro das zonas, o cofre não é designável por esta autoridade.
+    recursosProibidos: ['z-seguranca']
+  }
+]);
+
 export function topologiaInicial(): Topologia {
   return {
     nos: NOS,
@@ -209,6 +244,7 @@ export interface Bancada {
   gate: GateDeAcesso;
   diario: DiarioNaTrilha;
   plantao: PlantaoDeAprovacao;
+  responsabilidades: RegistroDeResponsabilidades;
   canal: CanalEmMemoria;
   autoridade: AutoridadeEmMemoria;
   registros: RegistrosDeAcessoEmMemoria;
@@ -262,6 +298,11 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     diario
   });
 
+  // Os escopos de delegação da instalação. O supervisor da UTI designa apoio à
+  // UTI e nada além dela; a gerência de facilities alcança mais zonas e para
+  // antes da faixa crítica. Sem escopo declarado, nenhuma autoridade designa.
+  const responsabilidades = new RegistroDeResponsabilidades(relogio, ESCOPOS_DE_DELEGACAO, diario);
+
   const ciclo = new CicloDeGovernanca({
     relogio,
     entitlementEngine,
@@ -289,6 +330,9 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     papeis: PAPEIS,
     topologia: topologiaInicial(),
     entitlementsVigentes: [],
+    // As responsabilidades temporárias entram ao lado da lotação, nunca
+    // dentro dela: o RH continua dizendo a verdade do RH.
+    responsabilidades,
     // O cofre de psicotrópicos é CRITICAL: a política exige aprovação humana,
     // e o gate exige DUAS pessoas distintas nessa faixa. A aprovação é aberta
     // e decidida em `aprovarCofre()`, contra o material selado.
@@ -305,6 +349,7 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     gate,
     diario,
     plantao,
+    responsabilidades,
     canal,
     autoridade,
     registros,

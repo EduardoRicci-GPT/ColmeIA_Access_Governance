@@ -55,7 +55,10 @@
 | # | Item | O que muda |
 |---|---|---|
 | 20 | `Competencia` como objeto de primeira classe | hoje o motor trata competência como papel. Um profissional pode ter o cargo e não ter a habilitação vigente — e o motor concederia. É a lacuna que mais distancia o código da formulação "por competência e responsabilidade vigente" |
-| 21 | `ResponsabilidadeTemporaria` + `EscopoDeDelegacao` + pedido de exceção | o hospital não funciona só pela escala do RH. O supervisor concede RESPONSABILIDADE, dentro da sua autoridade, com motivo e prazo; o motor deriva os acessos e os revoga no vencimento. Encaixa no gate, no plantão e no ciclo que já existem |
+| 21 | ~~`ResponsabilidadeTemporaria` + `EscopoDeDelegacao` + pedido de exceção~~ — **feito**, ADR-0020 | o supervisor designa responsabilidade dentro da sua autoridade, com motivo e prazo; o motor deriva os acessos e os revoga no vencimento, sem ninguém precisar lembrar de desfazer |
+| 21b | Detecção da exceção sem alguém abrir o pedido | hoje o pedido precisa ser aberto por uma pessoa. Detectar exige passagem observada — câmera e sensor —, e a pesquisa recomendou não atravessar essa fronteira antes de dominar a governança de acesso |
+| 21c | Segunda aprovação para designações sensíveis | o campo existe no desenho do escopo e não foi implementado. Hoje toda designação dentro do escopo vale com uma assinatura |
+| 21d | Leitura gerencial do remanejamento | quantas vezes a UTI pediu apoio, de onde veio, em que horários. O registro já existe e ninguém agrega — é provavelmente o subproduto mais valioso da exceção operacional |
 | 22 | `Explicar acesso` — pessoa × recurso × instante | a explicação já existe em quatro lugares diferentes. Falta a pergunta única, e uma auditoria pergunta uma vez só |
 | 23 | Break-glass assistencial | emergência em faixa crítica hoje espera duas assinaturas. Privilégio temporário + justificativa + auditoria reforçada + revisão obrigatória depois |
 | 24 | Normalização de eventos de fabricante com proveniência | hoje cada adaptador entrega evento já no vocabulário do domínio; com três fabricantes reais, a tradução vira o lugar onde o significado se perde em silêncio |
