@@ -15,6 +15,8 @@
 import { fechar, grupo, igual, verificar } from './runner';
 import { ESCOPOS_DE_DELEGACAO, aprovarCofre, materialDoCofre, montarBancada, tick } from './bancada';
 import { PedidoDeExcecao, RegistroDeResponsabilidades } from '../packages/governanca';
+import { explicarAcesso } from '../packages/narrativa/explicacao';
+import { PolicyEngine, REGRAS_HOSPITALARES_BASE } from '../packages/policy-engine';
 import { resumirDivergencias } from '../packages/narrativa/resumo';
 import { montarPainel } from '../packages/assurance-ui/painel';
 import { renderizarPainel } from '../packages/assurance-ui/render';
@@ -832,6 +834,141 @@ async function c4(): Promise<void> {
   );
 }
 
+
+function fontesDe(b: Awaited<ReturnType<typeof montarBancada>>) {
+  return {
+    mundo: b.mundo,
+    politica: new PolicyEngine(REGRAS_HOSPITALARES_BASE),
+    registros: b.registros,
+    relogio: b.relogio,
+    gate: b.gate,
+    responsabilidades: b.responsabilidades,
+    trilha: b.trilha
+  };
+}
+
+async function x1(): Promise<void> {
+  grupo('X1 · a pergunta única responde as DUAS perguntas, separadas');
+  const b = montarBancada();
+  await tick(b);
+  await tick(b, 3_000);
+
+  const e = await explicarAcesso(
+    { relationshipId: 'vin-eduardo', endpointId: 'ep-uti-1' },
+    fontesDe(b)
+  );
+  igual('o veredito lógico é permitir', e.veredito, 'PERMITE');
+  igual('e a resposta é recomputada, não reconstruída', e.natureza, 'RECOMPUTADA');
+  verificar('o estado físico vem separado, e confirmado', e.estadoFisico.confirmado);
+  verificar(
+    'as camadas nomeiam vínculo, turno, papel e competência',
+    ['Vínculo', 'Turno', 'Papel e lotação', 'Competência'].every((nome) =>
+      e.camadas.some((c) => c.nome === nome)
+    ),
+    e.camadas.map((c) => c.nome).join(', ')
+  );
+  verificar(
+    'a camada de competência diz que a exigência está vigente',
+    e.camadas.find((c) => c.nome === 'Competência')?.leitura === 'SUSTENTA'
+  );
+  verificar(
+    'e a regra vencedora é nomeada, não resumida',
+    e.regrasAplicadas.length > 0,
+    e.regrasAplicadas.join(',')
+  );
+}
+
+async function x2(): Promise<void> {
+  grupo('X2 · quando bloqueia, a explicação diz qual camada bloqueou');
+  const b = montarBancada();
+  await tick(b);
+  await tick(b, 3_000);
+  b.competencias.suspender('p-eduardo', 'registro-de-enfermagem');
+
+  const e = await explicarAcesso(
+    { relationshipId: 'vin-eduardo', endpointId: 'ep-uti-1' },
+    fontesDe(b)
+  );
+  igual('o veredito vira negar', e.veredito, 'NEGA');
+  igual(
+    'e a camada que bloqueia é a competência',
+    e.camadas.find((c) => c.nome === 'Competência')?.leitura,
+    'BLOQUEIA'
+  );
+  verificar(
+    'o estado físico ainda diz o que o equipamento confirmou por último',
+    e.estadoFisico.confirmado,
+    e.estadoFisico.texto
+  );
+  // A distinção que o produto inteiro existe para sustentar: a negativa é
+  // lógica, e o equipamento continua com a concessão antiga até sincronizar.
+  verificar(
+    'e as duas coisas não são apresentadas como uma só',
+    e.veredito === 'NEGA' && e.estadoFisico.estado?.lastConfirmedState === 'DEVICE_GRANT_CONFIRMED'
+  );
+}
+
+async function x3(): Promise<void> {
+  grupo('X3 · a aprovação humana aparece como camada própria');
+  const b = montarBancada();
+  const primeiro = await tick(b);
+  const material = materialDoCofre(primeiro);
+
+  const antes = await explicarAcesso(
+    { relationshipId: material.relationshipId, endpointId: material.endpointId },
+    fontesDe(b)
+  );
+  igual('antes de assinar, exige revisão', antes.veredito, 'EXIGE_REVISAO');
+  const camada = antes.camadas.find((c) => c.nome === 'Aprovação humana');
+  verificar('a camada existe', camada !== undefined);
+  igual('e diz que ainda não autoriza', camada?.leitura, 'EXIGE_REVISAO');
+
+  await aprovarCofre(b, material);
+  const depois = await explicarAcesso(
+    { relationshipId: material.relationshipId, endpointId: material.endpointId },
+    fontesDe(b)
+  );
+  igual('com as duas assinaturas, permite', depois.veredito, 'PERMITE');
+  verificar(
+    'e a camada nomeia quem assinou, com a alçada daquele instante',
+    (depois.camadas.find((c) => c.nome === 'Aprovação humana')?.texto ?? '').includes('alçada até'),
+    depois.camadas.find((c) => c.nome === 'Aprovação humana')?.texto ?? '(sem camada)'
+  );
+}
+
+async function x4(): Promise<void> {
+  grupo('X4 · sobre o passado, a explicação recusa o verdicto e entrega a cadeia');
+  const b = montarBancada();
+  await tick(b);
+  await tick(b, 3_000);
+  const instante = b.relogio.agora();
+  await tick(b, 60 * 60_000);
+
+  const e = await explicarAcesso(
+    { relationshipId: 'vin-eduardo', endpointId: 'ep-uti-1', em: instante },
+    fontesDe(b)
+  );
+  igual('a natureza da resposta muda', e.natureza, 'RECONSTRUIDA');
+  igual('e o verdicto é recusado', e.veredito, 'NAO_RECONSTITUIVEL');
+  verificar(
+    'com o motivo dito: guardamos atos, não o estado do mundo',
+    (e.camadas[0]?.texto ?? '').includes('não o ESTADO do mundo'),
+    e.camadas[0]?.texto ?? ''
+  );
+  verificar(
+    'mas a cadeia daquele endpoint é entregue',
+    e.linhas.some((linha) => linha.includes('EntitlementGranted') || linha.includes('Physical')),
+    e.linhas.slice(0, 3).join(' | ')
+  );
+
+  grupo('X4 · pergunta sem sujeito não inventa resposta');
+  const semSujeito = await explicarAcesso(
+    { relationshipId: 'vin-inexistente', endpointId: 'ep-uti-1' },
+    fontesDe(b)
+  );
+  igual('devolve SEM_SUJEITO', semSujeito.veredito, 'SEM_SUJEITO');
+}
+
 await h7();
 await h8();
 await h9();
@@ -845,4 +982,8 @@ await c1();
 await c2();
 await c3();
 await c4();
-fechar('Cenários hospitalares, exceções operacionais e competência');
+await x1();
+await x2();
+await x3();
+await x4();
+fechar('Cenários hospitalares, exceções, competência e Explicar acesso');
