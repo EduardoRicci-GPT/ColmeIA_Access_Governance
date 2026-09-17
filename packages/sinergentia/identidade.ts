@@ -51,6 +51,18 @@
 // O que atravessa é a DOUTRINA, reimplementada no vocabulário desta casa e
 // verificada aqui: a cascata de faculdades, a ancoragem, os três "não". O que
 // não atravessa é código em sombra fingindo estatuto.
+//
+// LEITURA DE SEGUNDA MÃO, E ISSO ESTÁ DECLARADO
+//
+// A fonte primária é `Ricci-I-Next/MPEH_Sinergentia-`, e ela NÃO foi lida para
+// escrever isto — esteve fora do alcance da sessão que o escreveu. O que se leu
+// foi o espelho da Aletheia. É fonte legítima e é fonte de segunda mão, e a
+// diferença entre as duas coisas é a mesma que este produto cobra de um número
+// em sombra: o valor serve, e quem o usa precisa saber de onde ele veio.
+//
+// A conferência contra o original está no backlog (item 15e), e três pontos
+// deste pacote podem mudar com ela: as três negativas abaixo, a taxonomia de
+// tarefas e as classes de âncora.
 // ---------------------------------------------------------------------------
 
 import { CorpoDeOrigem } from '../mpeh-kernel/ledger/tipos';
@@ -100,8 +112,9 @@ export const SINERGENTIA: IdentidadeDaParceria = Object.freeze({
   autoridade: Object.freeze({ decisao: false, acaoExterna: false, numerica: false }),
   procedencia:
     'Aletheia · src/data/sinergentiaStatus.ts — registro público de identidade e parceria ' +
-    'cognitiva. A doutrina foi reimplementada neste produto; o runtime do laboratório, que a ' +
-    'origem mantém em SHADOW, não foi copiado.',
+    'cognitiva, lido em SEGUNDA MÃO. A fonte primária é Ricci-I-Next/MPEH_Sinergentia-, que ' +
+    'não foi conferida. A doutrina foi reimplementada neste produto; o runtime do ' +
+    'laboratório, que a origem mantém em SHADOW, não foi copiado.',
   aviso:
     'A Sinergentia³ não decide acesso, não age sobre equipamento e não produz número. ' +
     'Ela lê material já apurado por instrumentos determinísticos e o escreve em prosa. ' +

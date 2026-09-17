@@ -2,7 +2,8 @@
 
 **Estado:** aceito
 **Data:** 2026-09-17
-**Origem da doutrina:** Aletheia — `src/data/faculdades.ts`, `src/data/sinergentiaStatus.ts`, `src/services/verificadorAncoragem.ts`, `src/services/roteadorFaculdades.ts`
+**Origem da doutrina (segunda mão):** Aletheia — `src/data/faculdades.ts`, `src/data/sinergentiaStatus.ts`, `src/services/verificadorAncoragem.ts`, `src/services/roteadorFaculdades.ts`
+**Fonte primária, não conferida:** `Ricci-I-Next/MPEH_Sinergentia-` e `Ricci-I-Next/MPEH-Sinergentia` — fora do alcance desta sessão
 **Relacionado:** ADR-0003 (separação de corpos), ADR-0007 (fronteira de dado clínico), ADR-0011 (calibragem), item 15 e item 10 do backlog
 
 ## Contexto
@@ -11,12 +12,27 @@ O pedido era integrar a Sinergentia³ neste produto para torná-lo mais
 independente de IA externa, mantendo IA externa só quando necessária. Antes de
 escrever qualquer linha, três achados da análise mudam a forma do trabalho.
 
-**Primeiro: o runtime não existe como código a ser copiado.** O repositório
-`MPEH-Sinergentia-K3-Runtime` é um fork de um monorepo de agente de terceiro,
-sem material Sinergentia dentro; o `Sinergentia-Book` tem só um README. O que
-existe de verdade está na Aletheia, e está como DOUTRINA implementada: o
-registro de identidade, o registro de faculdades, o roteador em cascata, o
-verificador de ancoragem e o motor de capacidade reduzida.
+**Primeiro: o runtime não estava ao alcance desta sessão.**
+
+> **CORREÇÃO, mesma data.** A primeira redação deste parágrafo dizia que "o
+> runtime não existe como código a ser copiado". Estava ERRADO, e o erro é do
+> tipo que este produto trata com mais severidade: uma conclusão afirmada com
+> mais alcance do que a evidência sustentava. O que eu havia examinado eram os
+> repositórios visíveis na sessão — `MPEH-Sinergentia-K3-Runtime`, que é um fork
+> de monorepo de agente de terceiro sem material Sinergentia dentro, e
+> `Sinergentia-Book`, que tem só um README. Disso concluí ausência, quando a
+> leitura honesta era "não encontrei nos lugares em que olhei".
+>
+> O runtime EXISTE: `Ricci-I-Next/MPEH_Sinergentia-`, privado, com atividade no
+> mesmo dia desta decisão, e há também `Ricci-I-Next/MPEH-Sinergentia` — que é
+> provavelmente o `MPEH_Sinergentia_A11` citado no cabeçalho de
+> `agentesGovernados.ts` da Aletheia. Ambos estão fora do escopo desta sessão
+> por serem de outro proprietário, e não por não existirem.
+
+O que esta decisão usou como fonte foi, portanto, a doutrina **como implementada
+na Aletheia**: o registro de identidade, o registro de faculdades, o roteador em
+cascata, o verificador de ancoragem e o motor de capacidade reduzida. É fonte
+legítima e é fonte de segunda mão.
 
 **Segundo: a origem mantém o laboratório em sombra.** O registro público diz
 `laboratorioEstado: 'SHADOW_INTEGRATION_CANDIDATE'` e
@@ -25,6 +41,10 @@ em sombra lhe daria, por mudança de endereço, uma autoridade que ele não tem 
 origem — exatamente o que o estatuto de calibração deste produto impede para um
 número. O que atravessa é a doutrina, reimplementada nesta casa e verificada
 aqui. O que não atravessa é código em sombra fingindo estatuto.
+
+Este argumento sobrevive à correção acima, e é o que mantém a decisão de pé: ele
+não dependia de o runtime não existir. Dependia de ele estar em SHADOW na
+origem, e está.
 
 **Terceiro, e é o que inverte o desenho: este produto não tem IA nenhuma para
 reduzir.** A ColmeIA é integralmente determinística hoje. "Tornar-se mais
@@ -173,6 +193,17 @@ modelo para falar não deve ser alcançável por configuração distraída.
 
 ## O que esta decisão NÃO resolve
 
+- **A conferência contra a fonte primária está pendente.** Esta implementação é
+  porte de doutrina lida em segunda mão. Quando `Ricci-I-Next/MPEH_Sinergentia-`
+  estiver ao alcance, três coisas precisam ser conferidas contra ele, e cada uma
+  pode mudar código: (1) o contrato de identidade e as três negativas, que aqui
+  vieram do espelho da Aletheia e não do original; (2) a taxonomia de tarefas e
+  de escolas, que aqui foi reduzida ao que este domínio usa; (3) o verificador de
+  ancoragem, que aqui foi deliberadamente estreitado para identificadores e
+  números — se a fonte primária tiver classes que este domínio também precisa, a
+  redução vira lacuna. Enquanto a conferência não acontecer, este pacote é
+  `INTERFACE_READY` quanto à fidelidade à origem, e `IMPLEMENTED` quanto ao
+  comportamento verificado aqui.
 - **Nenhuma faculdade real existe.** `FaculdadeDeBancada` é bancada. A primeira
   faculdade de verdade — local ou remota — é integração, e a porta já está no
   lugar. A cascata de uma instalação sem faculdade contratada é o degrau zero
