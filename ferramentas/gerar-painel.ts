@@ -15,7 +15,13 @@ import { fileURLToPath } from 'node:url';
 
 import { aprovarCofre, materialDoCofre, montarBancada, tick } from '../testes/bancada';
 import { construirLinhaDoTempo } from '../packages/assurance-ui/timeline';
-import { montarPainel } from '../packages/assurance-ui/painel';
+import {
+  montarPainel,
+  ordenarHabilitacoes,
+  ordenarResponsabilidades
+} from '../packages/assurance-ui/painel';
+import { explicarAcesso } from '../packages/narrativa/explicacao';
+import { PolicyEngine, REGRAS_HOSPITALARES_BASE } from '../packages/policy-engine';
 import { renderizarPainel } from '../packages/assurance-ui/render';
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -67,15 +73,54 @@ for (const credencial of ['CRED-vin-marina-ep-farm-2', 'CRED-vin-rui-ep-seg-1'])
   timelines.push(construirLinhaDoTempo(credencial, elos, integridade));
 }
 
+// O caso a explicar é escolhido deterministicamente: a primeira pendência da
+// fila, que já vem ordenada por urgência de porta fechada (ADR-0017); na
+// ausência dela, o topo da fila de risco. Escolher "o mais recente" daria à
+// tela um caso diferente a cada volta do relógio, e nenhuma razão para ele.
+const pendencias = bancada.gate.pendencias();
+const alvo =
+  pendencias.length > 0
+    ? { relationshipId: pendencias[0]!.relationshipId, endpointId: pendencias[0]!.endpointId }
+    : relatorio.assurance.filaDeRisco.length > 0
+      ? {
+          relationshipId: 'vin-rui',
+          endpointId: relatorio.assurance.filaDeRisco[0]!.endpointId
+        }
+      : null;
+
+const explicacao = alvo
+  ? await explicarAcesso(alvo, {
+      mundo: bancada.mundo,
+      politica: new PolicyEngine(REGRAS_HOSPITALARES_BASE),
+      registros: bancada.registros,
+      relogio: bancada.relogio,
+      gate: bancada.gate,
+      responsabilidades: bancada.responsabilidades,
+      trilha: bancada.trilha
+    })
+  : undefined;
+
+const habilitacoes = bancada.mundo.pessoas.flatMap((pessoa) =>
+  bancada.competencias.habilitacoesDe(pessoa.id)
+);
+
 const painel = montarPainel(bancada.mundo.topologia, relatorio.assurance, timelines, {
+  responsabilidades: ordenarResponsabilidades(
+    bancada.responsabilidades.todas(),
+    bancada.relogio.agora()
+  ),
+  habilitacoes: ordenarHabilitacoes(habilitacoes, bancada.relogio.agora()),
+  explicacao,
+  aprovacoes: {
   fila: bancada.gate.pendencias(),
   avisos: bancada.gate.avisosDaVigencia(),
   // O chamado do último ciclo entra na tela junto da fila. Sem isto, cada
   // cartão apareceria sem linha de aviso — e um cartão sem linha diria ao
   // operador que o assunto está com alguém, quando pode não estar com ninguém.
   chamados: bancada.plantao.linhasAcumuladas(),
-  temCanal: bancada.plantao.temCanal
-}, {
+    temCanal: bancada.plantao.temCanal
+  },
+  segregacao: {
   linhas: relatorio.conflitosDeSegregacao.map((achado) => ({
     relationshipId: achado.relationshipId,
     personId: achado.personId,
@@ -86,7 +131,8 @@ const painel = montarPainel(bancada.mundo.topologia, relatorio.assurance, timeli
     explicacao: achado.conflito.explicacao,
     procedencia: achado.conflito.procedencia
   })),
-  avaliada: relatorio.segregacaoAvaliada
+    avaliada: relatorio.segregacaoAvaliada
+  }
 });
 const html = renderizarPainel(painel, { documentoCompleto: true });
 

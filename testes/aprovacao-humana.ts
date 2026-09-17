@@ -679,8 +679,10 @@ grupo('O prazo chega à tela com o aviso de sombra colado');
   const relatorio = await tick(b);
 
   const painel = montarPainel(b.mundo.topologia, relatorio.assurance, [], {
+    aprovacoes: {
     fila: b.gate.pendencias(),
-    avisos: b.gate.avisosDaVigencia()
+      avisos: b.gate.avisosDaVigencia()
+    }
   });
   verificar('o ciclo abriu pedido e ele chega ao modelo de visão', painel.filaDeAprovacao.length > 0);
   verificar(
@@ -815,10 +817,12 @@ grupo('Sem canal, ninguém é avisado — e isso é fato registrado, não silên
   );
 
   const painel = montarPainel(b.mundo.topologia, relatorio.assurance, [], {
+    aprovacoes: {
     fila: b.gate.pendencias(),
     avisos: b.gate.avisosDaVigencia(),
     chamados: semCanal.linhasParaTela(resumo),
-    temCanal: semCanal.temCanal
+      temCanal: semCanal.temCanal
+    }
   });
   verificar(
     'a tela diz, no alto da seção, que ninguém é chamado',
@@ -839,10 +843,12 @@ grupo('Sem canal, ninguém é avisado — e isso é fato registrado, não silên
   const b = montarBancada();
   const relatorio = await tick(b);
   const painel = montarPainel(b.mundo.topologia, relatorio.assurance, [], {
+    aprovacoes: {
     fila: b.gate.pendencias(),
     avisos: b.gate.avisosDaVigencia(),
     chamados: b.plantao.linhasParaTela(relatorio.plantao),
-    temCanal: b.plantao.temCanal
+      temCanal: b.plantao.temCanal
+    }
   });
   igual('com canal ligado, não há aviso de canal ausente', painel.avisoDeCanalAusente, null);
   verificar(

@@ -25,7 +25,8 @@ import { EscalationCase } from '../dominio/escalonamento';
 import { CartaoDeEscopo, ItemDaFila, PainelDeAssurance } from './painel';
 import { EstadoDaPendencia, PendenciaDeAprovacao } from '../governanca/aprovacao';
 import { AvisoNaTela } from '../governanca/plantao';
-import { LinhaDeSegregacao } from './painel';
+import { LinhaDeHabilitacao, LinhaDeResponsabilidade, LinhaDeSegregacao } from './painel';
+import { ExplicacaoDeAcesso, LeituraDaCamada } from '../narrativa/explicacao';
 import { LinhaDoTempo } from './timeline';
 
 function escapar(texto: string): string {
@@ -175,6 +176,19 @@ h2{font-size:13px; letter-spacing:.12em; text-transform:uppercase; font-weight:6
 .segregacao[data-origem="PAPEL_MAL_DESENHADO"]{border-left-color:var(--critico)}
 .segregacao h3{margin:0 0 6px; font-size:15.5px; font-weight:600}
 .segregacao .fonte{margin:8px 0 0; font-size:12px; color:var(--ink-muted)}
+.camada{display:grid; grid-template-columns:minmax(120px,168px) 92px 1fr; gap:10px; align-items:baseline;
+  padding:8px 0; border-bottom:1px solid var(--line)}
+.camada:last-child{border-bottom:none}
+.camada .nome{font-weight:600; font-size:13px}
+.camada .texto{font-size:12.5px; color:var(--ink-muted)}
+.leitura{font-size:11px; font-weight:600; letter-spacing:.02em; text-transform:lowercase;
+  padding:2px 8px; border-radius:999px; text-align:center}
+.leitura[data-l="SUSTENTA"]{background:var(--bom-soft); color:var(--bom)}
+.leitura[data-l="BLOQUEIA"]{background:var(--critico-soft); color:var(--critico)}
+.leitura[data-l="EXIGE_REVISAO"]{background:var(--atencao-soft); color:var(--atencao)}
+.leitura[data-l="NAO_SE_APLICA"]{background:var(--incerto-soft); color:var(--ink-muted)}
+.leitura[data-l="DESCONHECIDO"]{background:var(--incerto-soft); color:var(--incerto)}
+@media (max-width:640px){.camada{grid-template-columns:1fr; gap:2px}}
 .aprovacao header{display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; justify-content:space-between}
 .aprovacao h3{margin:0; font-size:15.5px; font-weight:600}
 .selo.est-VENCIDA{background:var(--critico-soft); color:var(--critico)}
@@ -314,6 +328,76 @@ function segregacaoHtml(linha: LinhaDeSegregacao): string {
     </article>`;
 }
 
+const ROTULO_DA_LEITURA: Record<LeituraDaCamada, string> = {
+  SUSTENTA: 'sustenta',
+  BLOQUEIA: 'bloqueia',
+  EXIGE_REVISAO: 'exige revisão',
+  NAO_SE_APLICA: 'não se aplica',
+  DESCONHECIDO: 'desconhecido'
+};
+
+function responsabilidadeHtml(linha: LinhaDeResponsabilidade): string {
+  return `
+    <article class="aprovacao" data-estado="${linha.estado === 'ATIVA' ? 'VIGENTE' : 'VENCIDA'}">
+      <header>
+        <h3>${escapar(linha.personId)} · ${escapar(linha.zonaId)}</h3>
+        <span class="mono" style="font-size:12px;color:var(--ink-muted)">${escapar(linha.tipo)}</span>
+      </header>
+      <div class="selos">
+        <span class="selo est-${linha.estado === 'ATIVA' ? 'VIGENTE' : 'VENCIDA'}">${linha.estado.toLowerCase()}</span>
+        <span class="selo acao mono tabular">${escapar(prazoLegivel(linha.minutosRestantes))}</span>
+        <span class="selo mono" style="font-size:12px">competência: ${escapar(linha.competenciaNaConcessao)}</span>
+      </div>
+      <p class="porque">${escapar(linha.motivo)} — designada por ${escapar(linha.concedidaPor)}.</p>
+    </article>`;
+}
+
+function habilitacaoHtml(linha: LinhaDeHabilitacao): string {
+  const prazo =
+    linha.minutosRestantes === null ? 'sem prazo' : prazoLegivel(linha.minutosRestantes);
+  return `
+    <tr>
+      <td>${escapar(linha.personId)}</td>
+      <td class="mono">${escapar(linha.competenciaId)}</td>
+      <td><span class="leitura" data-l="${linha.estado === 'SUSPENSA' ? 'BLOQUEIA' : linha.estado === 'VENCIDA' ? 'EXIGE_REVISAO' : 'SUSTENTA'}">${linha.estado.toLowerCase()}</span></td>
+      <td class="mono tabular">${escapar(prazo)}</td>
+    </tr>`;
+}
+
+/**
+ * A explicação inteira, camada a camada.
+ *
+ * As duas respostas ficam em blocos distintos porque são perguntas distintas:
+ * o veredito diz o que a organização quer, o estado físico diz o que o
+ * equipamento confirmou. Juntá-las num parágrafo só desfaria a separação que o
+ * produto inteiro existe para sustentar.
+ */
+function explicacaoHtml(explicacao: ExplicacaoDeAcesso): string {
+  const camadas = explicacao.camadas
+    .map(
+      (camada) => `
+      <div class="camada">
+        <span class="nome">${escapar(camada.nome)}</span>
+        <span class="leitura" data-l="${camada.leitura}">${ROTULO_DA_LEITURA[camada.leitura]}</span>
+        <span class="texto">${escapar(camada.texto)}</span>
+      </div>`
+    )
+    .join('');
+  return `
+    <article class="segregacao" data-origem="ACUMULO_DE_PAPEIS">
+      <h3>${escapar(explicacao.pergunta.relationshipId)} × ${escapar(explicacao.pergunta.endpointId)}</h3>
+      <div class="selos">
+        <span class="selo est-${explicacao.veredito === 'PERMITE' ? 'VIGENTE' : explicacao.veredito === 'NEGA' ? 'VENCIDA' : 'AGUARDANDO_DECISAO'}">${escapar(explicacao.veredito)}</span>
+        <span class="selo mono" style="font-size:12px">${explicacao.natureza === 'RECOMPUTADA' ? 'recomputada agora' : 'reconstruída da cadeia'}</span>
+        ${explicacao.porOmissao ? '<span class="selo risco-HIGH">fechou por omissão</span>' : ''}
+      </div>
+      <div style="margin-top:10px">${camadas}</div>
+      <p class="fonte"><strong>Estado físico —
+      ${explicacao.estadoFisico.confirmado ? 'confirmado' : 'sem confirmação'}.</strong>
+      ${escapar(explicacao.estadoFisico.texto)}</p>
+    </article>`;
+}
+
 function ocorrenciaHtml(item: ItemDaFila): string {
   return `
     <article class="ocorrencia" data-risco="${item.risco}">
@@ -431,6 +515,24 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
       ? '<p class="vazio">Nenhum acúmulo de atividade incompatível entre os vínculos vigentes.</p>'
       : painel.segregacao.map(segregacaoHtml).join('');
 
+  const responsabilidades =
+    painel.responsabilidades.length === 0
+      ? '<p class="vazio">Nenhuma responsabilidade temporária designada nesta instalação.</p>'
+      : painel.responsabilidades.map(responsabilidadeHtml).join('');
+
+  const habilitacoes =
+    painel.habilitacoes.length === 0
+      ? '<p class="vazio">Nenhuma habilitação declarada. Onde não há exigência, isto é normal; onde há, é a integração que falta.</p>'
+      : `<div class="rolagem"><table>
+          <thead><tr><th>Pessoa</th><th>Habilitação</th><th>Estado</th><th>Prazo</th></tr></thead>
+          <tbody>${painel.habilitacoes.map(habilitacaoHtml).join('')}</tbody>
+        </table></div>`;
+
+  const explicacao =
+    painel.explicacao === null
+      ? '<p class="vazio">Nenhum caso selecionado para explicação neste ciclo.</p>'
+      : explicacaoHtml(painel.explicacao);
+
   const chamadoPorPedido = new Map(painel.linhasDoPlantao.map((linha) => [linha.pedidoId, linha]));
 
   const aprovacoes =
@@ -522,6 +624,24 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
         : `<p class="ressalva-linha"><strong>Ressalva de vigência.</strong> ${escapar(painel.avisoDeVigencia)}</p>`
     }
     <div class="fila">${aprovacoes}</div>
+
+    <h2>Responsabilidade temporária</h2>
+    <p class="subtitulo">Quem está apoiando quem, por qual motivo e até quando. Ordenada pela que termina antes,
+    que é a linha que impede a próxima porta fechada de existir. O supervisor designa responsabilidade; os acessos
+    o motor deriva, e revoga sozinho no vencimento.</p>
+    <div class="fila">${responsabilidades}</div>
+
+    <h2>Habilitações</h2>
+    <p class="subtitulo">Suspensa no topo, porque é a única que mudou sem ninguém desta casa mandar. Depois a
+    vencida, e por fim a vigente com o prazo à vista — quem poderia renovar precisa ver o prazo enquanto ele
+    ainda corre.</p>
+    ${habilitacoes}
+
+    <h2>Explicação do caso mais consequente</h2>
+    <p class="subtitulo">Uma pergunta, duas respostas: o que a organização quer, e o que o equipamento confirmou.
+    Cada camada declara se sustenta, bloqueia, exige revisão ou não se aplica — para que se veja em qual linha a
+    resposta virou.</p>
+    ${explicacao}
 
     <h2>Segregação de funções</h2>
     <p class="subtitulo">Quem acumula autorizar, executar, custodiar e conferir no mesmo domínio — exista

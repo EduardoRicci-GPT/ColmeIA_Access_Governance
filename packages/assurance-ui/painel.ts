@@ -24,6 +24,9 @@ import { LinhaDeResumo, resumirDivergencias } from '../narrativa/resumo';
 import { PendenciaDeAprovacao } from '../governanca/aprovacao';
 import { AvisoNaTela } from '../governanca/plantao';
 import { ConflitoDeSegregacao } from '../policy-engine/segregacao';
+import { ResponsabilidadeTemporaria } from '../governanca/responsabilidade';
+import { HabilitacaoDaPessoa } from '../governanca/competencia';
+import { ExplicacaoDeAcesso } from '../narrativa/explicacao';
 import { descreverReconciliacao } from '../narrativa/honestidade';
 import { LinhaDoTempo } from './timeline';
 
@@ -126,6 +129,137 @@ export interface PainelDeAssurance {
    * notícia boa. A distinção é a mesma do canal de aviso ausente.
    */
   avisoDeSegregacaoDesligada: string | null;
+  /**
+   * Quem está apoiando quem, e até quando.
+   *
+   * Sem esta seção, a exceção operacional volta a ser resolvida fora da tela —
+   * que é onde ela era resolvida antes de existir, e onde não deixava rastro.
+   */
+  responsabilidades: readonly LinhaDeResponsabilidade[];
+  /**
+   * Habilitações, ordenadas por urgência de porta fechada.
+   *
+   * A suspensa lidera porque é a única que mudou sem ninguém da casa mandar.
+   * As vigentes entram com o prazo à vista pelo mesmo motivo que as aprovações
+   * vigentes entram na fila (ADR-0017): quem poderia renovar precisa ver o
+   * prazo enquanto ele ainda corre.
+   */
+  habilitacoes: readonly LinhaDeHabilitacao[];
+  /**
+   * A explicação completa do caso mais consequente deste ciclo.
+   *
+   * Uma só, e escolhida deterministicamente. Explicar tudo encheria a tela de
+   * texto que ninguém lê; não explicar nada deixaria `explicarAcesso` existindo
+   * apenas em teste, que é a definição de capacidade que não existe.
+   */
+  explicacao: ExplicacaoDeAcesso | null;
+}
+
+export interface LinhaDeResponsabilidade {
+  responsabilidadeId: string;
+  personId: string;
+  zonaId: string;
+  tipo: string;
+  concedidaPor: string;
+  motivo: string;
+  competenciaNaConcessao: string;
+  estado: ResponsabilidadeTemporaria['estado'];
+  validaAte: Date;
+  /** Negativo depois de vencida. */
+  minutosRestantes: number;
+}
+
+export type EstadoDaHabilitacaoNaTela = 'SUSPENSA' | 'VENCIDA' | 'VIGENTE';
+
+export interface LinhaDeHabilitacao {
+  personId: string;
+  competenciaId: string;
+  estado: EstadoDaHabilitacaoNaTela;
+  validaAte: Date | null;
+  /** `null` quando não expira por tempo. */
+  minutosRestantes: number | null;
+}
+
+const ORDEM_DA_RESPONSABILIDADE: Record<ResponsabilidadeTemporaria['estado'], number> = {
+  ATIVA: 0,
+  VENCIDA: 1,
+  REVOGADA: 2
+};
+
+/**
+ * A ordem: ativas primeiro, pela que termina antes.
+ *
+ * É a mesma decisão da fila de aprovação (ADR-0017). A que termina antes é a
+ * linha que impede a próxima porta fechada de existir, e por isso lidera —
+ * não a mais recente, que é o que uma lista cronológica mostraria.
+ */
+export function ordenarResponsabilidades(
+  responsabilidades: readonly ResponsabilidadeTemporaria[],
+  agora: Date
+): readonly LinhaDeResponsabilidade[] {
+  return responsabilidades
+    .map((r) => ({
+      responsabilidadeId: r.id,
+      personId: r.personId,
+      zonaId: r.zonaId,
+      tipo: r.tipo,
+      concedidaPor: r.concedidaPor,
+      motivo: r.motivoTexto ? `${r.motivo} — ${r.motivoTexto}` : r.motivo,
+      competenciaNaConcessao: r.competenciaNaConcessao,
+      estado: r.estado,
+      validaAte: r.validaAte,
+      minutosRestantes: (r.validaAte.getTime() - agora.getTime()) / 60_000
+    }))
+    .sort(
+      (a, b) =>
+        ORDEM_DA_RESPONSABILIDADE[a.estado] - ORDEM_DA_RESPONSABILIDADE[b.estado] ||
+        a.minutosRestantes - b.minutosRestantes
+    );
+}
+
+const ORDEM_DA_HABILITACAO: Record<EstadoDaHabilitacaoNaTela, number> = {
+  SUSPENSA: 0,
+  VENCIDA: 1,
+  VIGENTE: 2
+};
+
+/**
+ * Suspensa no topo, e a razão é a mesma da vencida na fila de aprovação.
+ *
+ * É a única que mudou sem ninguém da casa mandar: ontem abria, hoje não abre,
+ * e quem opera não foi avisado. Depois a vencida, da mais antiga para a mais
+ * recente — tem gente esperando há mais tempo. E as vigentes fecham a lista
+ * pela que vence primeiro, porque é a linha que evita a próxima suspensão de
+ * fato virar surpresa.
+ *
+ * Não há limiar de "prestes a vencer", pela mesma razão do ADR-0017: seria
+ * mais um número sem calibragem decidindo por conta própria o que merece
+ * susto. A ordenação põe o mais próximo no topo, e quem lê decide.
+ */
+export function ordenarHabilitacoes(
+  habilitacoes: readonly HabilitacaoDaPessoa[],
+  agora: Date
+): readonly LinhaDeHabilitacao[] {
+  return habilitacoes
+    .map((h) => {
+      const vencida = h.validaAte !== null && agora.getTime() >= h.validaAte.getTime();
+      const estado: EstadoDaHabilitacaoNaTela =
+        h.estado === 'SUSPENSA' ? 'SUSPENSA' : vencida ? 'VENCIDA' : 'VIGENTE';
+      return {
+        personId: h.personId,
+        competenciaId: h.competenciaId,
+        estado,
+        validaAte: h.validaAte,
+        minutosRestantes:
+          h.validaAte === null ? null : (h.validaAte.getTime() - agora.getTime()) / 60_000
+      };
+    })
+    .sort(
+      (a, b) =>
+        ORDEM_DA_HABILITACAO[a.estado] - ORDEM_DA_HABILITACAO[b.estado] ||
+        (a.minutosRestantes ?? Number.POSITIVE_INFINITY) -
+          (b.minutosRestantes ?? Number.POSITIVE_INFINITY)
+    );
 }
 
 export interface LinhaDeSegregacao {
@@ -206,13 +340,28 @@ export function avisoDeVigenciaEmSombra(aprovacoes: AprovacoesNaTela | undefined
   );
 }
 
+/**
+ * As seções que dependem de portas opcionais.
+ *
+ * Agrupadas num objeto em vez de virarem o sexto parâmetro posicional: uma
+ * função com seis posições é uma função que ninguém chama sem conferir a
+ * ordem, e a próxima seção seria a sétima.
+ */
+export interface SecoesDoPainel {
+  aprovacoes?: AprovacoesNaTela;
+  segregacao?: SegregacaoNaTela;
+  responsabilidades?: readonly LinhaDeResponsabilidade[];
+  habilitacoes?: readonly LinhaDeHabilitacao[];
+  explicacao?: ExplicacaoDeAcesso;
+}
+
 export function montarPainel(
   topologia: Topologia,
   relatorio: RelatorioDeAssurance,
   timelines: readonly LinhaDoTempo[] = [],
-  aprovacoes?: AprovacoesNaTela,
-  segregacao?: SegregacaoNaTela
+  secoes: SecoesDoPainel = {}
 ): PainelDeAssurance {
+  const { aprovacoes, segregacao } = secoes;
   const paiPorId = new Map<string, string | null>(topologia.nos.map((no) => [no.id, no.paiId]));
   for (const endpoint of topologia.endpoints) paiPorId.set(endpoint.id, endpoint.zonaId);
 
@@ -256,7 +405,10 @@ export function montarPainel(
     linhasDoPlantao: aprovacoes?.chamados ?? [],
     avisoDeCanalAusente: avisoDeCanalAusente(aprovacoes),
     segregacao: segregacao?.linhas ?? [],
-    avisoDeSegregacaoDesligada: avisoDeSegregacaoDesligada(segregacao)
+    avisoDeSegregacaoDesligada: avisoDeSegregacaoDesligada(segregacao),
+    responsabilidades: secoes.responsabilidades ?? [],
+    habilitacoes: secoes.habilitacoes ?? [],
+    explicacao: secoes.explicacao ?? null
   };
 }
 

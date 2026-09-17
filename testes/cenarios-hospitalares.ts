@@ -16,6 +16,7 @@ import { fechar, grupo, igual, verificar } from './runner';
 import { ESCOPOS_DE_DELEGACAO, aprovarCofre, materialDoCofre, montarBancada, tick } from './bancada';
 import { PedidoDeExcecao, RegistroDeResponsabilidades } from '../packages/governanca';
 import { explicarAcesso } from '../packages/narrativa/explicacao';
+import { ordenarHabilitacoes, ordenarResponsabilidades } from '../packages/assurance-ui/painel';
 import { PolicyEngine, REGRAS_HOSPITALARES_BASE } from '../packages/policy-engine';
 import { resumirDivergencias } from '../packages/narrativa/resumo';
 import { montarPainel } from '../packages/assurance-ui/painel';
@@ -404,7 +405,8 @@ async function h11(): Promise<void> {
   const achado = ultimo.conflitosDeSegregacao.find((c) => c.relationshipId === 'vin-marina');
   verificar('e encontrou o acúmulo da farmacêutica', achado !== undefined);
 
-  const painel = montarPainel(b.mundo.topologia, ultimo.assurance, [], undefined, {
+  const painel = montarPainel(b.mundo.topologia, ultimo.assurance, [], {
+    segregacao: {
     linhas: ultimo.conflitosDeSegregacao.map((c) => ({
       relationshipId: c.relationshipId,
       personId: c.personId,
@@ -415,7 +417,8 @@ async function h11(): Promise<void> {
       explicacao: c.conflito.explicacao,
       procedencia: c.conflito.procedencia
     })),
-    avaliada: ultimo.segregacaoAvaliada
+      avaliada: ultimo.segregacaoAvaliada
+    }
   });
   igual('a seção da tela recebe a linha', painel.segregacao.length, 1);
   igual('sem aviso de leitura desligada', painel.avisoDeSegregacaoDesligada, null);
@@ -969,6 +972,108 @@ async function x4(): Promise<void> {
   igual('devolve SEM_SUJEITO', semSujeito.veredito, 'SEM_SUJEITO');
 }
 
+
+async function x5(): Promise<void> {
+  grupo('X5 · a ordem das habilitações é a urgência de porta fechada');
+  const b = montarBancada();
+  await tick(b);
+  const agora = b.relogio.agora();
+  const linhas = ordenarHabilitacoes(
+    [
+      {
+        personId: 'p-a',
+        competenciaId: 'vigente-longe',
+        estado: 'VIGENTE',
+        validaAte: new Date(agora.getTime() + 90 * 24 * 60 * 60_000),
+        verificadoEm: agora
+      },
+      {
+        personId: 'p-b',
+        competenciaId: 'vencida',
+        estado: 'VIGENTE',
+        validaAte: new Date(agora.getTime() - 10 * 60_000),
+        verificadoEm: agora
+      },
+      {
+        personId: 'p-c',
+        competenciaId: 'suspensa',
+        estado: 'SUSPENSA',
+        validaAte: new Date(agora.getTime() + 60 * 60_000),
+        verificadoEm: agora
+      },
+      {
+        personId: 'p-d',
+        competenciaId: 'vigente-perto',
+        estado: 'VIGENTE',
+        validaAte: new Date(agora.getTime() + 30 * 60_000),
+        verificadoEm: agora
+      }
+    ],
+    agora
+  );
+  igual('a suspensa lidera', linhas[0]?.competenciaId, 'suspensa');
+  igual('depois a vencida', linhas[1]?.competenciaId, 'vencida');
+  igual('e entre as vigentes, a que vence primeiro', linhas[2]?.competenciaId, 'vigente-perto');
+  igual('fechando pela mais folgada', linhas[3]?.competenciaId, 'vigente-longe');
+
+  grupo('X5 · a responsabilidade que termina antes vem primeiro');
+  b.responsabilidades.conceder(
+    pedido({ id: 'EXC-0030', duracaoMinutos: 180 }),
+    'escopo-facilities'
+  );
+  b.responsabilidades.conceder(
+    pedido({
+      id: 'EXC-0031',
+      personId: 'p-marina',
+      relationshipId: 'vin-marina',
+      duracaoMinutos: 45
+    }),
+    'escopo-facilities'
+  );
+  const ordenadas = ordenarResponsabilidades(b.responsabilidades.todas(), b.relogio.agora());
+  igual('a de 45 min lidera a de 180', ordenadas[0]?.personId, 'p-marina');
+  verificar('e o prazo aparece em minutos restantes', ordenadas[0]!.minutosRestantes <= 45);
+
+  grupo('X5 · as três capacidades chegam ao HTML');
+  const relatorio = await tick(b, 60_000);
+  const explicacao = await explicarAcesso(
+    { relationshipId: 'vin-eduardo', endpointId: 'ep-uti-1' },
+    fontesDe(b)
+  );
+  const painel = montarPainel(b.mundo.topologia, relatorio.assurance, [], {
+    responsabilidades: ordenadas,
+    habilitacoes: ordenarHabilitacoes(
+      b.mundo.pessoas.flatMap((pessoa) => b.competencias.habilitacoesDe(pessoa.id)),
+      b.relogio.agora()
+    ),
+    explicacao
+  });
+  igual('o modelo de visão recebe as responsabilidades', painel.responsabilidades.length, 2);
+  verificar('e as habilitações declaradas', painel.habilitacoes.length > 0);
+  verificar('e a explicação', painel.explicacao !== null);
+
+  const html = renderizarPainel(painel);
+  verificar('o HTML traz a seção de responsabilidade', html.includes('Responsabilidade temporária'));
+  verificar('a de habilitações', html.includes('<h2>Habilitações</h2>'));
+  verificar('e a explicação camada a camada', html.includes('class="camada"'));
+  verificar(
+    'com o estado físico em bloco próprio, e não no meio do texto',
+    html.includes('Estado físico —'),
+  );
+
+  grupo('X5 · sem as seções, a tela não finge estar limpa');
+  const semSecoes = montarPainel(b.mundo.topologia, relatorio.assurance);
+  const htmlVazio = renderizarPainel(semSecoes);
+  verificar(
+    'a ausência de habilitação é explicada, não silenciada',
+    htmlVazio.includes('é a integração que falta'),
+  );
+  verificar(
+    'e a ausência de explicação também',
+    htmlVazio.includes('Nenhum caso selecionado para explicação')
+  );
+}
+
 await h7();
 await h8();
 await h9();
@@ -986,4 +1091,5 @@ await x1();
 await x2();
 await x3();
 await x4();
+await x5();
 fechar('Cenários hospitalares, exceções, competência e Explicar acesso');
