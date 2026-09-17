@@ -98,7 +98,10 @@ const ROTULO: Readonly<Record<TipoDeEvento, string>> = Object.freeze({
   TemporaryResponsibilityRequested: 'Exceção operacional solicitada',
   TemporaryResponsibilityDenied: 'Exceção operacional recusada',
   TemporaryResponsibilityGranted: 'Responsabilidade temporária designada',
-  TemporaryResponsibilityEnded: 'Responsabilidade temporária encerrada'
+  TemporaryResponsibilityEnded: 'Responsabilidade temporária encerrada',
+  BreakGlassInvoked: 'Quebra de vidro invocada',
+  BreakGlassExpired: 'Janela de emergência encerrada',
+  BreakGlassReviewed: 'Quebra de vidro revisada'
 });
 
 function horaCompleta(data: Date): string {

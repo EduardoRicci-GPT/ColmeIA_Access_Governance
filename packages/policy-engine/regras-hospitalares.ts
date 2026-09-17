@@ -13,6 +13,19 @@ import { PedidoDeDecisao, RegraDePolitica } from './tipos';
 import { DOMINIOS_DE_SEGREGACAO_BASE, regraDeSegregacaoPorAtividade } from './segregacao';
 
 export const PRIORIDADE = Object.freeze({
+  /**
+   * O que nem a emergência atravessa: vínculo, ordem de serviço e habilitação
+   * suspensa. A quebra de vidro concede PERMISSÃO depressa, e nenhuma dessas
+   * três é falta de permissão — são falta de vínculo e falta de qualificação,
+   * que não se concedem depressa nem devagar.
+   */
+  IMPEDIMENTO_ABSOLUTO: 120,
+  /**
+   * A emergência declarada. Fica acima do turno de propósito: a enfermeira cujo
+   * plantão terminou dez minutos atrás e que está no corredor é exatamente
+   * quem atende a parada cardíaca.
+   */
+  QUEBRA_DE_VIDRO: 110,
   BLOQUEIO_ESTRUTURAL: 100,
   RESTRICAO_SANITARIA: 80,
   COMPETENCIA_EXIGIDA: 75,
@@ -26,7 +39,7 @@ export const PRIORIDADE = Object.freeze({
 export const REGRA_VINCULO_VIGENTE: RegraDePolitica = {
   id: 'R-VINCULO-VIGENTE',
   descricao: 'Vínculo encerrado, suspenso ou fora da vigência nega o acesso.',
-  prioridade: PRIORIDADE.BLOQUEIO_ESTRUTURAL,
+  prioridade: PRIORIDADE.IMPEDIMENTO_ABSOLUTO,
   efeito: 'DENY',
   aplicavel: (pedido) => !pedido.contexto.vinculoVigente,
   justificativa: () => 'Vínculo institucional não vigente no momento do pedido.'
@@ -36,7 +49,7 @@ export const REGRA_VINCULO_VIGENTE: RegraDePolitica = {
 export const REGRA_ORDEM_DE_SERVICO: RegraDePolitica = {
   id: 'R-ORDEM-DE-SERVICO',
   descricao: 'Prestador com ordem de serviço encerrada não acessa.',
-  prioridade: PRIORIDADE.BLOQUEIO_ESTRUTURAL,
+  prioridade: PRIORIDADE.IMPEDIMENTO_ABSOLUTO,
   efeito: 'DENY',
   aplicavel: (pedido) => pedido.contexto.ordemDeServicoAberta === false,
   justificativa: () => 'Ordem de serviço encerrada.'
@@ -109,7 +122,7 @@ export function regraDeSegregacao(papelA: string, papelB: string): RegraDePoliti
 export const REGRA_COMPETENCIA_SUSPENSA: RegraDePolitica = {
   id: 'R-COMPETENCIA-SUSPENSA',
   descricao: 'Habilitação exigida suspensa pelo emissor nega o acesso.',
-  prioridade: PRIORIDADE.BLOQUEIO_ESTRUTURAL,
+  prioridade: PRIORIDADE.IMPEDIMENTO_ABSOLUTO,
   efeito: 'DENY',
   aplicavel: (pedido) => pedido.contexto.competencia?.suspensa === true,
   justificativa: (pedido) =>
@@ -140,6 +153,37 @@ export const REGRA_COMPETENCIA_PENDENTE: RegraDePolitica = {
     pedido.contexto.competencia.suspensa === false,
   justificativa: (pedido) =>
     pedido.contexto.competencia?.explicacao ?? 'Habilitação exigida pendente.'
+};
+
+/**
+ * A quebra de vidro abre a porta agora — e não aprova nada.
+ *
+ * Vence o turno, a criticidade, a segregação e a competência pendente, porque
+ * todas elas são formas de DELIBERAÇÃO, e é a deliberação que a emergência não
+ * comporta. Perde para vínculo, ordem de serviço encerrada e habilitação
+ * suspensa, porque essas não são deliberação: são ausência de vínculo e
+ * ausência de qualificação, e não existe conceder depressa o que a pessoa não
+ * tem.
+ *
+ * Vence também a restrição sanitária, e esta é a decisão mais discutível do
+ * conjunto. O argumento: numa parada dentro de um isolamento, quem entra é
+ * quem está na porta, de EPI, e o que decide isso é o protocolo assistencial —
+ * não a fechadura. A revisão posterior vê o caso, e é ali que a discussão
+ * acontece, com o paciente já atendido.
+ *
+ * Quando a janela fecha, o acesso volta a depender do caminho normal: a
+ * pendência de aprovação continua aberta, porque nada foi aprovado.
+ */
+export const REGRA_QUEBRA_DE_VIDRO: RegraDePolitica = {
+  id: 'R-QUEBRA-DE-VIDRO',
+  descricao: 'Emergência declarada abre o acesso pela janela da quebra de vidro.',
+  prioridade: PRIORIDADE.QUEBRA_DE_VIDRO,
+  efeito: 'ALLOW',
+  aplicavel: (pedido) => pedido.contexto.quebraDeVidroAtiva === true,
+  justificativa: () =>
+    'Quebra de vidro ativa: alguém afirmou emergência com nome e justificativa, e assumiu ' +
+    'prestar contas depois. A porta abre agora; nada foi aprovado, e a revisão obrigatória ' +
+    'permanece aberta até que uma pessoa com alçada a feche.'
 };
 
 /**
@@ -196,6 +240,7 @@ export const REGRAS_HOSPITALARES_BASE: readonly RegraDePolitica[] = Object.freez
   REGRA_ORDEM_DE_SERVICO,
   REGRA_TURNO,
   REGRA_COMPETENCIA_SUSPENSA,
+  REGRA_QUEBRA_DE_VIDRO,
   REGRA_COMPETENCIA_PENDENTE,
   REGRA_SEGREGACAO_POR_ATIVIDADE,
   REGRA_APROVACAO_EM_AREA_CRITICA,

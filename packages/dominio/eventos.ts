@@ -67,7 +67,12 @@ export type TipoDeEvento =
   | 'TemporaryResponsibilityRequested'
   | 'TemporaryResponsibilityDenied'
   | 'TemporaryResponsibilityGranted'
-  | 'TemporaryResponsibilityEnded';
+  | 'TemporaryResponsibilityEnded'
+  // A emergência declarada. Invocar em silêncio é o que este produto impede:
+  // os três atos entram na cadeia, e a revisão não se fecha sozinha.
+  | 'BreakGlassInvoked'
+  | 'BreakGlassExpired'
+  | 'BreakGlassReviewed';
 
 export interface EventoDeDominio {
   id: string;

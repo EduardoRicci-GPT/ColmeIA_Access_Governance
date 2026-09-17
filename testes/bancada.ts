@@ -23,6 +23,7 @@ import {
   MaterialDeRevisao,
   PlantaoDeAprovacao,
   RegistroDeCompetencias,
+  RegistroDeQuebraDeVidro,
   RegistroDeResponsabilidades
 } from '../packages/governanca';
 import { Endpoint, Gateway, NoDeHierarquia, ProviderConnection, Topologia } from '../packages/dominio/topologia';
@@ -279,6 +280,7 @@ export interface Bancada {
   plantao: PlantaoDeAprovacao;
   responsabilidades: RegistroDeResponsabilidades;
   competencias: RegistroDeCompetencias;
+  emergencias: RegistroDeQuebraDeVidro;
   canal: CanalEmMemoria;
   autoridade: AutoridadeEmMemoria;
   registros: RegistrosDeAcessoEmMemoria;
@@ -352,6 +354,11 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     competencias
   );
 
+  // A quebra de vidro é do host: quem afirma emergência é a pessoa que está
+  // lá. A bancada monta o registro para que a exceção exista no sistema
+  // montado, e não apenas em teste.
+  const emergencias = new RegistroDeQuebraDeVidro(relogio, undefined, diario);
+
   const ciclo = new CicloDeGovernanca({
     relogio,
     entitlementEngine,
@@ -383,6 +390,7 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     // dentro dela: o RH continua dizendo a verdade do RH.
     responsabilidades,
     competencias,
+    emergencias,
     // O cofre de psicotrópicos é CRITICAL: a política exige aprovação humana,
     // e o gate exige DUAS pessoas distintas nessa faixa. A aprovação é aberta
     // e decidida em `aprovarCofre()`, contra o material selado.
@@ -401,6 +409,7 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     plantao,
     responsabilidades,
     competencias,
+    emergencias,
     canal,
     autoridade,
     registros,

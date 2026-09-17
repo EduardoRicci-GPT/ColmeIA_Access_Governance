@@ -17,6 +17,7 @@ import { ESCOPOS_DE_DELEGACAO, aprovarCofre, materialDoCofre, montarBancada, tic
 import { PedidoDeExcecao, RegistroDeResponsabilidades } from '../packages/governanca';
 import { explicarAcesso } from '../packages/narrativa/explicacao';
 import { ordenarHabilitacoes, ordenarResponsabilidades } from '../packages/assurance-ui/painel';
+import { avisosDaEmergencia } from '../packages/governanca';
 import { PolicyEngine, REGRAS_HOSPITALARES_BASE } from '../packages/policy-engine';
 import { resumirDivergencias } from '../packages/narrativa/resumo';
 import { montarPainel } from '../packages/assurance-ui/painel';
@@ -1074,6 +1075,244 @@ async function x5(): Promise<void> {
   );
 }
 
+
+async function b1(): Promise<void> {
+  grupo('B1 · na emergência, a porta abre agora — e nada foi aprovado');
+  const b = montarBancada();
+  const primeiro = await tick(b);
+  const material = materialDoCofre(primeiro);
+
+  // O cofre é CRITICAL: a política exige aprovação humana, e o gate exige duas
+  // pessoas distintas. Numa parada cardíaca, as duas estão ocupadas.
+  verificar(
+    'antes, o acesso ao cofre está pendente de duas assinaturas',
+    primeiro.pendentesDeAprovacao.some((p) => p.material.endpointId === material.endpointId)
+  );
+
+  const quebra = b.emergencias.invocar({
+    id: 'VIDRO-P1',
+    personId: material.personId,
+    relationshipId: material.relationshipId,
+    endpointId: material.endpointId,
+    zonaId: material.zonaId,
+    criticidade: material.criticidade,
+    natureza: 'PARADA_CARDIORRESPIRATORIA',
+    justificativa: 'Parada em leito 3; necessário psicotrópico do carro de emergência.',
+    invocadaPor: 'rui.seguranca',
+    em: b.relogio.agora()
+  });
+  verificar('a quebra de vidro é aceita de imediato', 'id' in quebra);
+  if (!('id' in quebra)) return;
+
+  const comEmergencia = await tick(b, 60_000);
+  const acao = comEmergencia.acoesLogicas.find(
+    (a) => a.material.endpointId === material.endpointId
+  );
+  igual('o direito é concedido', acao?.tipo, 'GRANT');
+  verificar(
+    'pela regra da emergência, e a razão diz que nada foi aprovado',
+    (acao?.decisao.razao ?? '').includes('nada foi aprovado'),
+    acao?.decisao.razao ?? '(sem ação)'
+  );
+  await tick(b, 3_000);
+  igual(
+    'e o equipamento confirma',
+    b.registros.obter(`CRED-${material.relationshipId}-${material.endpointId}`)?.estado
+      .lastConfirmedState,
+    'DEVICE_GRANT_CONFIRMED'
+  );
+
+  grupo('B1 · a janela fecha sozinha, e o acesso volta ao caminho normal');
+  const depois = await tick(b, 16 * 60_000);
+  const revogacao = depois.acoesLogicas.find(
+    (a) => a.material.endpointId === material.endpointId && a.tipo === 'REVOKE'
+  );
+  verificar('passados 15 minutos, o direito é revogado', revogacao !== undefined);
+  verificar(
+    'e a pendência de aprovação continua aberta: a emergência não aprovou nada',
+    depois.pendentesDeAprovacao.some((p) => p.material.endpointId === material.endpointId)
+  );
+
+  grupo('B1 · quebrar o vidro em silêncio é impossível');
+  const eventos = await b.trilha.todos();
+  verificar(
+    'a invocação virou elo com autor humano',
+    eventos.some((e) => e.tipo === 'BreakGlassInvoked' && e.decisionOrigin === 'MANUAL_OPERATOR')
+  );
+  verificar(
+    'o fim da janela também, e sem ator',
+    eventos.some((e) => e.tipo === 'BreakGlassExpired' && e.decisionOrigin === undefined)
+  );
+  verificar(
+    'e o resumo traz a justificativa dita por quem invocou',
+    eventos.some((e) => e.tipo === 'BreakGlassInvoked' && e.resumo.includes('Parada em leito 3'))
+  );
+}
+
+async function b2(): Promise<void> {
+  grupo('B2 · a linha que a emergência não atravessa');
+  const b = montarBancada();
+  await tick(b);
+  await tick(b, 3_000);
+
+  // Habilitação suspensa pelo conselho. Emergência concede PERMISSÃO depressa,
+  // e o que falta aqui não é permissão.
+  b.competencias.suspender('p-eduardo', 'registro-de-enfermagem');
+  b.emergencias.invocar({
+    id: 'VIDRO-P2',
+    personId: 'p-eduardo',
+    relationshipId: 'vin-eduardo',
+    endpointId: 'ep-uti-1',
+    zonaId: 'z-uti',
+    criticidade: 'HIGH',
+    natureza: 'RISCO_IMINENTE_DE_VIDA',
+    justificativa: 'Intercorrência no leito 7.',
+    invocadaPor: 'eduardo.enfermagem',
+    em: b.relogio.agora()
+  });
+
+  const apos = await tick(b, 60_000);
+  const acao = apos.acoesLogicas.find(
+    (a) => a.material.relationshipId === 'vin-eduardo' && a.material.zonaId === 'z-uti'
+  );
+  igual('com habilitação suspensa, a emergência não abre', acao?.tipo, 'REVOKE');
+  verificar(
+    'e a razão continua sendo a da qualificação',
+    (acao?.decisao.razao ?? '').includes('não é permissão'),
+    acao?.decisao.razao ?? '(sem ação)'
+  );
+
+  grupo('B2 · sem vínculo vigente, também não');
+  const b2 = montarBancada();
+  await tick(b2);
+  b2.mundo = {
+    ...b2.mundo,
+    vinculos: b2.mundo.vinculos.map((v) =>
+      v.id === 'vin-clara' ? { ...v, situacao: 'TERMINATED' as const } : v
+    )
+  };
+  b2.emergencias.invocar({
+    id: 'VIDRO-P3',
+    personId: 'p-clara',
+    relationshipId: 'vin-clara',
+    endpointId: 'ep-adm-1',
+    zonaId: 'z-admin',
+    criticidade: 'LOW',
+    natureza: 'EVACUACAO',
+    justificativa: 'Evacuação do prédio.',
+    invocadaPor: 'clara.administrativo',
+    em: b2.relogio.agora()
+  });
+  const semVinculo = await tick(b2, 60_000);
+  const acaoClara = semVinculo.acoesLogicas.find(
+    (a) => a.material.relationshipId === 'vin-clara'
+  );
+  igual('vínculo encerrado vence a emergência', acaoClara?.tipo, 'REVOKE');
+}
+
+async function b3(): Promise<void> {
+  grupo('B3 · a revisão obrigatória não se fecha sozinha');
+  const b = montarBancada();
+  await tick(b);
+  const agora = b.relogio.agora();
+  b.emergencias.invocar({
+    id: 'VIDRO-P4',
+    personId: 'p-marina',
+    relationshipId: 'vin-marina',
+    endpointId: 'ep-farm-2',
+    zonaId: 'z-farmacia',
+    criticidade: 'HIGH',
+    natureza: 'FALHA_DE_EQUIPAMENTO_ASSISTENCIAL',
+    justificativa: 'Bomba de infusão substituída às pressas.',
+    invocadaPor: 'marina.farmacia',
+    em: agora
+  });
+
+  igual('nasce pendente de revisão', b.emergencias.pendentesDeRevisao().length, 1);
+  await tick(b, 8 * 60 * 60_000);
+  igual(
+    'oito horas depois, continua pendente — pendência que some vira caminho normal',
+    b.emergencias.pendentesDeRevisao().length,
+    1
+  );
+  igual('e a janela já expirou', b.emergencias.vigentes().length, 0);
+
+  const id = b.emergencias.pendentesDeRevisao()[0]!.id;
+  const revisada = b.emergencias.revisar(
+    id,
+    'sofia.seguranca',
+    'LEGITIMA',
+    'Confirmado com a enfermagem: houve troca de bomba no leito 4.'
+  );
+  verificar('só gente fecha', revisada?.revisao?.verdicto === 'LEGITIMA');
+  igual('e a fila esvazia', b.emergencias.pendentesDeRevisao().length, 0);
+  verificar(
+    'revisar duas vezes não sobrescreve o primeiro verdicto',
+    b.emergencias.revisar(id, 'outro', 'IRREGULAR', 'tentativa') === undefined
+  );
+
+  // O diário é drenado pelo ciclo, num ponto único por volta (ADR-0018). Sem
+  // um tick depois da revisão, o ato existe e ainda não chegou à cadeia.
+  await tick(b, 60_000);
+  const eventos = await b.trilha.todos();
+  verificar(
+    'a revisão vira elo, com verdicto e nota',
+    eventos.some((e) => e.tipo === 'BreakGlassReviewed' && e.resumo.includes('LEGITIMA'))
+  );
+}
+
+async function b4(): Promise<void> {
+  grupo('B4 · justificativa vazia é recusada, e a repetição é achado');
+  const b = montarBancada();
+  await tick(b);
+  const base = {
+    personId: 'p-marina',
+    relationshipId: 'vin-marina',
+    endpointId: 'ep-farm-2',
+    zonaId: 'z-farmacia',
+    criticidade: 'HIGH' as const,
+    invocadaPor: 'marina.farmacia',
+    em: b.relogio.agora()
+  };
+  const vazia = b.emergencias.invocar({
+    ...base,
+    id: 'VIDRO-P5',
+    natureza: 'RISCO_IMINENTE_DE_VIDA',
+    justificativa: '   '
+  });
+  verificar('sem justificativa, não há o que revisar depois', 'recusada' in vazia);
+
+  const outraCurta = b.emergencias.invocar({
+    ...base,
+    id: 'VIDRO-P6',
+    natureza: 'OUTRA',
+    justificativa: 'urgente'
+  });
+  verificar('natureza OUTRA exige descrição de verdade', 'recusada' in outraCurta);
+
+  for (const [i, id] of ['VIDRO-P7', 'VIDRO-P8', 'VIDRO-P9'].entries()) {
+    b.emergencias.invocar({
+      ...base,
+      id,
+      natureza: 'INTERCORRENCIA_CLINICA_GRAVE',
+      justificativa: `Intercorrência ${i + 1} no plantão.`
+    });
+  }
+  igual('três quebras na mesma zona são contadas', b.emergencias.contagemPorZona()['z-farmacia'], 3);
+  // Repetição não é julgada aqui: é dado para quem revisa. Um sistema que
+  // decidisse sozinho que houve abuso estaria acusando, e acusação é
+  // jurisdição humana.
+  igual('e as três permanecem pendentes de revisão', b.emergencias.pendentesDeRevisao().length, 3);
+
+  const janelas = avisosDaEmergencia();
+  igual('as quatro janelas estão em sombra', janelas.length, 4);
+  verificar(
+    'e a ressalva diz que o efeito delas é só encurtar a exceção',
+    janelas.every((aviso) => aviso.includes('ENCURTAR a exceção')),
+    janelas[0] ?? '(vazio)'
+  );
+}
+
 await h7();
 await h8();
 await h9();
@@ -1092,4 +1331,8 @@ await x2();
 await x3();
 await x4();
 await x5();
-fechar('Cenários hospitalares, exceções, competência e Explicar acesso');
+await b1();
+await b2();
+await b3();
+await b4();
+fechar('Cenários hospitalares, exceções, competência, explicação e emergência');

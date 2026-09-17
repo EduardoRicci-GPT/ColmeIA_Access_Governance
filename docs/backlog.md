@@ -66,7 +66,9 @@
 | 22b | ~~Tela de Explicar acesso~~ — **feito** | o caso mais consequente do ciclo aparece camada a camada, com o estado físico em bloco próprio. Escolha determinística: a primeira pendência da fila, ou o topo da fila de risco |
 | 22d | Explicar acesso sob demanda, e não só o caso escolhido | a tela é um relatório estático; escolher um caso por ciclo é o que cabe nela. Perguntar por qualquer pessoa × recurso exige servidor, e o motor já responde |
 | 22c | Estado histórico para reconstituir o passado | hoje o verdicto retroativo é recusado, porque guardamos atos e não o estado do mundo. Responder de verdade exige snapshot por instante, com custo de armazenamento a decidir |
-| 23 | Break-glass assistencial | emergência em faixa crítica hoje espera duas assinaturas. Privilégio temporário + justificativa + auditoria reforçada + revisão obrigatória depois |
+| 23 | ~~Break-glass assistencial~~ — **feito**, ADR-0023 | a emergência abre a porta agora e não aprova nada: janela curta em sombra, três atos na cadeia, revisão obrigatória que não se fecha sozinha, e o direito revogado quando a janela fecha |
+| 23b | Chamar o plantão quando o vidro quebra | o plantão avisa sobre a fila de aprovação e não sobre a emergência, que é o evento mais urgente do produto. A porta existe; falta ligá-la |
+| 23c | Revisão pendente na tela, e repetição no Health Score | a revisão fica no registro para sempre, e ninguém a vê. Três quebras na mesma zona deveriam pesar no score |
 | 24 | Normalização de eventos de fabricante com proveniência | hoje cada adaptador entrega evento já no vocabulário do domínio; com três fabricantes reais, a tradução vira o lugar onde o significado se perde em silêncio |
 | 25 | Vínculo biométrico pseudonimizado | quando houver biometria, o subsistema recebe um identificador, não o RH da pessoa. A fronteira já existe para dado clínico (ADR-0007) e vale igual aqui |
 

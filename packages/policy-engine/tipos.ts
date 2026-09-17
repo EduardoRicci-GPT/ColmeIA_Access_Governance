@@ -57,6 +57,14 @@ export interface AtributosDeContexto {
    * integração com o conselho ficasse muda.
    */
   competencia?: LeituraDeCompetencia;
+  /**
+   * Há quebra de vidro ativa para esta dupla neste instante?
+   *
+   * Booleano, e projetado: o motor não precisa saber quem invocou, por qual
+   * natureza nem com que justificativa. Quem precisa disso é a revisão
+   * posterior, e ela lê do registro.
+   */
+  quebraDeVidroAtiva?: boolean;
 }
 
 /**

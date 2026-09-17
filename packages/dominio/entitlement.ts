@@ -81,7 +81,9 @@ export type MotivoDeRevogacao =
   | 'SCHEDULE_CHANGED'
   | 'POLICY_DENIED'
   | 'WINDOW_EXPIRED'
-  | 'MANUAL_REVOCATION';
+  | 'MANUAL_REVOCATION'
+  /** A janela da quebra de vidro fechou, e ela não aprovava nada. */
+  | 'EMERGENCY_WINDOW_CLOSED';
 
 /**
  * O direito propriamente dito: uma pessoa, um endpoint, uma janela, uma razão.
@@ -102,7 +104,23 @@ export interface Entitlement {
   motivoDeRevogacao?: MotivoDeRevogacao;
   /** Referência à decisão de política que originou o direito. */
   decisaoId?: string;
+  /**
+   * O que sustentou a concessão.
+   *
+   * Existe por causa de um defeito que a bancada encontrou: um direito nascido
+   * de quebra de vidro, quando a janela fecha, volta a cair em
+   * `REQUIRE_APPROVAL` — e ali o motor MANTÉM o direito existente, por decisão
+   * correta desde o ADR-0009. O resultado seria a emergência virando concessão
+   * permanente e silenciosa, que é exatamente o destino de todo break-glass mal
+   * desenhado.
+   *
+   * Sem esta marca, o motor não tem como distinguir um direito que alguém
+   * aprovou de um que ninguém aprovou.
+   */
+  origemDaConcessao?: OrigemDaConcessao;
 }
+
+export type OrigemDaConcessao = 'POLITICA' | 'QUEBRA_DE_VIDRO';
 
 export type SituacaoDeCredencial = 'ACTIVE' | 'SUSPENDED' | 'REVOKED' | 'EXPIRED';
 

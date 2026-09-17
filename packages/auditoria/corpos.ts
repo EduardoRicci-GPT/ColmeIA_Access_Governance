@@ -134,6 +134,10 @@ export function corpoDoTipo(tipo: TipoDeEvento): CorpoDeOrigem {
     // não é decisão de ninguém — os dois caem no consultivo, corretamente.
     case 'TemporaryResponsibilityGranted':
     case 'TemporaryResponsibilityDenied':
+    // Invocar emergência é ato de gente que assume; revisar depois também.
+    // Expirar não é: a janela fecha porque o tempo passou.
+    case 'BreakGlassInvoked':
+    case 'BreakGlassReviewed':
       return 'HUMANO';
     default:
       return 'CONSULTIVO';

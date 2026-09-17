@@ -36,6 +36,7 @@ import {
   dentroDoTeto
 } from '../governanca/responsabilidade';
 import { ConsultaDeCompetencia, SEM_COMPETENCIAS } from '../governanca/competencia';
+import { ConsultaDeEmergencia, SEM_EMERGENCIAS } from '../governanca/emergencia';
 import { AfetadosPelaDecisao } from '../contratos-estruturais/filtro-zero';
 
 export interface MundoLogico {
@@ -95,6 +96,13 @@ export interface MundoLogico {
    * isso não fecha porta nenhuma.
    */
   competencias?: ConsultaDeCompetencia;
+  /**
+   * As quebras de vidro ativas.
+   *
+   * Ausente significa nenhuma emergência declarada — e nunca significa
+   * emergência presumida.
+   */
+  emergencias?: ConsultaDeEmergencia;
 }
 
 /**
@@ -147,6 +155,16 @@ export interface AcaoDeEntitlement {
    */
   material: MaterialDeRevisao;
   explicacao: string;
+  /**
+   * A política exigiu revisão humana e ela ainda não aconteceu.
+   *
+   * Campo explícito porque a alternativa era o que estava aqui: filtrar a fila
+   * de pendências procurando a palavra "pendente" na explicação. Funcionava, e
+   * amarrava comportamento a prosa — a primeira reescrita de frase esvaziaria
+   * a fila em silêncio. Foi o cenário B1 que topou com isso, ao acrescentar uma
+   * explicação nova que não continha a palavra.
+   */
+  aguardaAprovacao?: boolean;
 }
 
 export interface ResultadoDeReconciliacaoLogica {
@@ -211,6 +229,11 @@ export function montarContexto(
     competencia: (mundo.competencias ?? SEM_COMPETENCIAS).avaliar(
       vinculo.personId,
       endpoint.zonaId,
+      agora
+    ),
+    quebraDeVidroAtiva: (mundo.emergencias ?? SEM_EMERGENCIAS).ativaPara(
+      vinculo.id,
+      endpoint.id,
       agora
     )
   };
@@ -334,9 +357,7 @@ export class EntitlementReconciliationEngine {
       organizationId: mundo.organizationId,
       acoes,
       conflitos,
-      pendentesDeAprovacao: acoes.filter(
-        (acao) => acao.decisao.efeito === 'REQUIRE_APPROVAL' && acao.explicacao.includes('pendente')
-      ),
+      pendentesDeAprovacao: acoes.filter((acao) => acao.aguardaAprovacao === true),
       avaliacoes
     };
   }
@@ -412,10 +433,28 @@ export class EntitlementReconciliationEngine {
           explicacao: `Aprovação humana registrada. ${decisao.razao}`
         };
       }
+      // O KEEP aqui pressupõe que o direito existente foi aprovado, ou que
+      // nunca foi materializado — e a quebra de vidro quebrou a pressuposição:
+      // ela materializa sem aprovar. Manter seria transformar a emergência em
+      // concessão permanente, que é o destino de todo break-glass mal
+      // desenhado. Defeito encontrado pela bancada, no cenário B1.
+      if (existente?.origemDaConcessao === 'QUEBRA_DE_VIDRO') {
+        return {
+          ...base,
+          tipo: 'REVOKE',
+          motivo: 'EMERGENCY_WINDOW_CLOSED',
+          aguardaAprovacao: true,
+          explicacao:
+            'A janela da quebra de vidro fechou e ninguém aprovou este acesso. O direito ' +
+            'nasceu de uma afirmação de emergência, não de uma decisão — e volta a ' +
+            `depender do caminho normal. ${decisao.razao}`
+        };
+      }
       return {
         ...base,
         tipo: 'KEEP',
         escalaDesejada: vinculo.escala,
+        aguardaAprovacao: true,
         explicacao:
           `Aprovação humana pendente: o direito NÃO foi materializado. ` +
           `${consulta.explicar(material)} ${decisao.razao}`

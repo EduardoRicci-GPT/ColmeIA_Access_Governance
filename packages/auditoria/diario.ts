@@ -34,6 +34,7 @@ import {
 } from '../governanca/aprovacao';
 import { AtoDeAviso, DiarioDeAviso } from '../governanca/plantao';
 import { AtoDeResponsabilidade, DiarioDeResponsabilidade } from '../governanca/responsabilidade';
+import { AtoDeEmergencia, DiarioDeEmergencia } from '../governanca/emergencia';
 import { EventoDeDominio } from '../dominio/eventos';
 import { TrilhaDeAcesso } from './trilha';
 
@@ -151,8 +152,32 @@ function resumoDaResponsabilidade(ato: AtoDeResponsabilidade): string {
   }
 }
 
+/** Frase determinística para os três atos da emergência. */
+function resumoDaEmergencia(ato: AtoDeEmergencia): string {
+  const p = ato.quebra.pedido;
+  const onde = `${p.endpointId} (${p.zonaId}, ${p.criticidade})`;
+  switch (ato.tipo) {
+    case 'INVOCADA':
+      return (
+        `${p.invocadaPor} quebrou o vidro em ${onde} por ${p.natureza}: "${p.justificativa}". ` +
+        `A porta abre até ${ato.quebra.expiraEm.toISOString()}; nada foi aprovado, e a ` +
+        'revisão obrigatória nasce aberta.'
+      );
+    case 'EXPIRADA':
+      return (
+        `A janela de emergência de ${p.invocadaPor} em ${onde} fechou. O acesso volta a ` +
+        'depender do caminho normal; a revisão continua pendente até que gente a feche.'
+      );
+    case 'REVISADA':
+      return (
+        `${ato.revisao.revisadaPor} revisou a quebra de vidro de ${p.invocadaPor} em ${onde}: ` +
+        `${ato.revisao.verdicto}. ${ato.revisao.nota}`
+      );
+  }
+}
+
 export class DiarioNaTrilha
-  implements DiarioDeAprovacao, DiarioDeAviso, DiarioDeResponsabilidade
+  implements DiarioDeAprovacao, DiarioDeAviso, DiarioDeResponsabilidade, DiarioDeEmergencia
 {
   private readonly pendentes: EventoDeDominio[] = [];
   private sequencia = 0;
@@ -334,6 +359,57 @@ export class DiarioNaTrilha
         ...(ato.tipo === 'ENCERRADA' ? { causa: ato.causa } : {})
       },
       resumo: resumoDaResponsabilidade(ato)
+    });
+  }
+
+  /**
+   * Os três atos da emergência.
+   *
+   * O invocado entra imediatamente, e é isso que torna impossível quebrar o
+   * vidro em silêncio — a única coisa que este desenho não admite. `EXPIRADA`
+   * separa as duas datas, porque o fim da janela não tem ator: o tempo passou.
+   */
+  registrarEmergencia(ato: AtoDeEmergencia): void {
+    this.sequencia += 1;
+    const prefixo = this.opcoes.prefixoDeId ?? 'APROV';
+    const id = `${prefixo}-${String(this.sequencia).padStart(5, '0')}`;
+    const tipo =
+      ato.tipo === 'INVOCADA'
+        ? 'BreakGlassInvoked'
+        : ato.tipo === 'EXPIRADA'
+          ? 'BreakGlassExpired'
+          : 'BreakGlassReviewed';
+    const p = ato.quebra.pedido;
+
+    this.pendentes.push({
+      id,
+      tipo,
+      ocorridoEm: ato.em,
+      registradoEm: ato.tipo === 'EXPIRADA' ? ato.observadoEm : ato.em,
+      origemDeIngestao: 'LOCAL_EVENT',
+      decisionOrigin: ato.tipo === 'EXPIRADA' ? undefined : 'MANUAL_OPERATOR',
+      idempotencyKey: `${ato.quebra.id}::${tipo}`,
+      organizationId: this.opcoes.organizationId,
+      facilityId: this.opcoes.facilityId,
+      endpointId: p.endpointId,
+      personId: p.personId,
+      dados: {
+        quebraId: ato.quebra.id,
+        zonaId: p.zonaId,
+        criticidade: p.criticidade,
+        natureza: p.natureza,
+        invocadaPor: p.invocadaPor,
+        justificativa: p.justificativa,
+        expiraEm: ato.quebra.expiraEm.toISOString(),
+        ...(ato.tipo === 'REVISADA'
+          ? {
+              revisadaPor: ato.revisao.revisadaPor,
+              verdicto: ato.revisao.verdicto,
+              nota: ato.revisao.nota
+            }
+          : {})
+      },
+      resumo: resumoDaEmergencia(ato)
     });
   }
 

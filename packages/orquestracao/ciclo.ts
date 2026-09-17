@@ -665,7 +665,12 @@ export class CicloDeGovernanca {
       escala: acao.escalaDesejada,
       concedidoPor: 'ciclo-de-governanca',
       concedidoEm: existente?.concedidoEm ?? agora,
-      decisaoId: acao.decisao.id
+      decisaoId: acao.decisao.id,
+      // Quem sustentou a concessão decide o que acontece quando o sustento
+      // acabar. Um direito de emergência precisa cair quando a janela fecha.
+      origemDaConcessao: acao.decisao.regrasAplicadas.includes('R-QUEBRA-DE-VIDRO')
+        ? 'QUEBRA_DE_VIDRO'
+        : 'POLITICA'
     });
   }
 
