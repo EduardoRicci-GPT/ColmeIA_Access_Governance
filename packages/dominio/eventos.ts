@@ -72,7 +72,14 @@ export type TipoDeEvento =
   // os três atos entram na cadeia, e a revisão não se fecha sozinha.
   | 'BreakGlassInvoked'
   | 'BreakGlassExpired'
-  | 'BreakGlassReviewed';
+  | 'BreakGlassReviewed'
+  // O chamado da emergência a quem responde pela área. Separado do chamado da
+  // aprovação porque é outro ato: aquele CONVOCA uma decisão que falta, este
+  // INFORMA um fato consumado. A cadeia precisa distinguir os dois, senão uma
+  // investigação lê "chamado não entregue" sem saber se ninguém foi acordado
+  // para decidir ou se ninguém soube que a porta já tinha sido aberta.
+  | 'BreakGlassNotified'
+  | 'BreakGlassNotificationUndelivered';
 
 export interface EventoDeDominio {
   id: string;

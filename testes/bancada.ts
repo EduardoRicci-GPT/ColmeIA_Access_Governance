@@ -321,6 +321,11 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
   const diario = new DiarioNaTrilha(trilha, { organizationId: 'org-sinergentia' });
   const gate = new GateDeAcesso(autoridade, relogio, JANELAS_PADRAO, diario);
 
+  // A quebra de vidro é do host: quem afirma emergência é a pessoa que está
+  // lá. A bancada monta o registro para que a exceção exista no sistema
+  // montado, e não apenas em teste.
+  const emergencias = new RegistroDeQuebraDeVidro(relogio, undefined, diario);
+
   // O canal é do host. Aqui é o de bancada; numa instalação sem canal, o
   // padrão é `CANAL_AUSENTE`, que recusa a entrega e diz por quê — é o que
   // impede "ninguém foi avisado" de virar silêncio.
@@ -331,6 +336,11 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     papeisConhecidos: ALCADAS_HOSPITALARES.map((alcada) => alcada.papel),
     relogio,
     canal,
+    // O registro de emergências entra no plantão, e é por isso que ele é
+    // construído antes dele: sem esta linha, o vidro quebra às 02h40 e o
+    // produto não chama ninguém — que é o defeito que o ADR-0023 declarou em
+    // aberto ao ser escrito.
+    emergencias,
     diario
   });
 
@@ -353,11 +363,6 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     diario,
     competencias
   );
-
-  // A quebra de vidro é do host: quem afirma emergência é a pessoa que está
-  // lá. A bancada monta o registro para que a exceção exista no sistema
-  // montado, e não apenas em teste.
-  const emergencias = new RegistroDeQuebraDeVidro(relogio, undefined, diario);
 
   const ciclo = new CicloDeGovernanca({
     relogio,

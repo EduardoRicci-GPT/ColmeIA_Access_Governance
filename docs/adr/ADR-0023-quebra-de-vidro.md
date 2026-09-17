@@ -116,11 +116,11 @@ explícito (`aguardaAprovacao`), e a fila passou a ser filtrada por fato.
 
 ## O que esta decisão NÃO resolve
 
-- **Ninguém é chamado quando o vidro quebra.** O plantão avisa sobre a fila de
-  aprovação (ADR-0018) e não sobre a emergência, que é o evento mais urgente do
-  produto. A porta existe; falta ligá-la.
-- **A revisão pendente não aparece na tela.** O registro a guarda para sempre,
-  e uma pendência que só existe em memória é uma pendência que ninguém vê.
+- ~~**Ninguém é chamado quando o vidro quebra.**~~ Resolvido pelo ADR-0024: o
+  plantão ganhou uma segunda espécie de aviso, que informa um fato em vez de
+  convocar uma decisão.
+- ~~**A revisão pendente não aparece na tela.**~~ Resolvido pelo ADR-0024, com a
+  dívida ordenada da mais antiga para a mais nova.
 - **O Health Score não sente a repetição.** Três quebras na mesma zona deveriam
   pesar; hoje são um número que ninguém lê.
 - **Quem invoca é uma string.** Ligar isso à sessão autenticada do aplicativo

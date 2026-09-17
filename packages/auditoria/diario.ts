@@ -32,7 +32,7 @@ import {
   DiarioDeAprovacao,
   MaterialDeRevisao
 } from '../governanca/aprovacao';
-import { AtoDeAviso, DiarioDeAviso } from '../governanca/plantao';
+import { AtoDeAviso, AtoDeAvisoDeEmergencia, DiarioDeAviso } from '../governanca/plantao';
 import { AtoDeResponsabilidade, DiarioDeResponsabilidade } from '../governanca/responsabilidade';
 import { AtoDeEmergencia, DiarioDeEmergencia } from '../governanca/emergencia';
 import { EventoDeDominio } from '../dominio/eventos';
@@ -176,6 +176,25 @@ function resumoDaEmergencia(ato: AtoDeEmergencia): string {
   }
 }
 
+/** Frase determinística do chamado da emergência, entregue ou não. */
+function resumoDoAvisoDeEmergencia(ato: AtoDeAvisoDeEmergencia): string {
+  const { aviso } = ato;
+  const p = aviso.quebra.pedido;
+  const onde = `${p.zonaId} / ${p.endpointId} (${p.criticidade})`;
+  const alvo =
+    aviso.papeisComAlcada.length === 0
+      ? 'nenhum papel com alçada nesta instalação'
+      : `${aviso.papeisComAlcada.length} papéis com alçada (${[...aviso.papeisComAlcada].sort().join(', ')})`;
+  const assunto =
+    aviso.motivo === 'QUEBRA_DE_VIDRO'
+      ? `quebra de vidro ${aviso.quebra.id} em curso, invocada por ${p.invocadaPor}`
+      : `revisão pendente da quebra de vidro ${aviso.quebra.id}, cuja janela já fechou`;
+  const cabeca = `Comunicada ${assunto} sobre ${p.personId} em ${onde}, dirigida a ${alvo}`;
+  return ato.entrega.entregue
+    ? `${cabeca}. Entregue pelo canal ${ato.canal}.`
+    : `${cabeca}. NÃO entregue: ${ato.entrega.detalhe}`;
+}
+
 export class DiarioNaTrilha
   implements DiarioDeAprovacao, DiarioDeAviso, DiarioDeResponsabilidade, DiarioDeEmergencia
 {
@@ -289,6 +308,57 @@ export class DiarioNaTrilha
         referencia: ato.entrega.referencia
       },
       resumo: resumoDoAviso(ato)
+    });
+  }
+
+  /**
+   * A comunicação da emergência a quem responde pela área.
+   *
+   * Tipo próprio na cadeia, e não `AccessApprovalNotified` reaproveitado: o elo
+   * precisa dizer QUE FATO não alcançou ninguém. Um chamado de aprovação não
+   * entregue custa uma decisão atrasada; uma quebra de vidro não comunicada
+   * custa uma porta que foi aberta por afirmação de uma pessoa sem que ninguém
+   * com alçada soubesse — e é essa a linha que uma investigação procura.
+   *
+   * Sem `decisionOrigin`, como todo chamado: comunicar não é decidir.
+   */
+  registrarAvisoDeEmergencia(ato: AtoDeAvisoDeEmergencia): void {
+    this.sequencia += 1;
+    const prefixo = this.opcoes.prefixoDeId ?? 'APROV';
+    const id = `${prefixo}-${String(this.sequencia).padStart(5, '0')}`;
+    const tipo = ato.entrega.entregue
+      ? 'BreakGlassNotified'
+      : 'BreakGlassNotificationUndelivered';
+    const { aviso } = ato;
+    const p = aviso.quebra.pedido;
+
+    this.pendentes.push({
+      id,
+      tipo,
+      ocorridoEm: aviso.em,
+      registradoEm: aviso.em,
+      origemDeIngestao: 'LOCAL_EVENT',
+      idempotencyKey: `${aviso.quebraId}::${tipo}::${aviso.motivo}`,
+      organizationId: this.opcoes.organizationId,
+      facilityId: this.opcoes.facilityId,
+      endpointId: p.endpointId,
+      personId: p.personId,
+      dados: {
+        quebraId: aviso.quebraId,
+        motivo: aviso.motivo,
+        faixa: aviso.faixa,
+        zonaId: p.zonaId,
+        natureza: p.natureza,
+        invocadaPor: p.invocadaPor,
+        expiraEm: aviso.quebra.expiraEm.toISOString(),
+        // Papéis, nunca pessoas — pela mesma razão do chamado de aprovação.
+        papeisComAlcada: [...aviso.papeisComAlcada].sort(),
+        canal: ato.canal,
+        entregue: ato.entrega.entregue,
+        detalhe: ato.entrega.detalhe,
+        referencia: ato.entrega.referencia
+      },
+      resumo: resumoDoAvisoDeEmergencia(ato)
     });
   }
 

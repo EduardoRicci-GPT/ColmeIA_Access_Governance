@@ -60,6 +60,7 @@ import {
 } from '../mpeh-kernel/human-gate/tipos';
 import { Relogio } from '../dominio/tempo';
 import { criticidadeDoGate, PendenciaDeAprovacao } from './aprovacao';
+import { QuebraDeVidro } from './emergencia';
 
 const CURADOR = 'Nível E — governança de acesso ColmeIA';
 const VERIFICADO_EM = '2026-09-17';
@@ -237,6 +238,8 @@ export type MotivoDoAviso =
   | 'VENCIDA';
 
 export interface AvisoDeAprovacao {
+  /** Discriminante: convocar gente para decidir. */
+  especie: 'APROVACAO';
   pedidoId: string;
   motivo: MotivoDoAviso;
   /** 1 é o primeiro toque; 2 em diante é insistência, não hierarquia. */
@@ -249,6 +252,30 @@ export interface AvisoDeAprovacao {
   texto: string;
   em: Date;
 }
+
+/**
+ * O aviso da emergência — e ele é um ato de natureza diferente.
+ *
+ * O aviso de aprovação CONVOCA: há uma decisão esperando gente. O aviso de
+ * emergência INFORMA: já aconteceu, alguém assumiu, e quem responde pela área
+ * precisa saber agora. Tratar os dois como o mesmo objeto faria o segundo
+ * herdar a paciência do primeiro — e a quebra de vidro não tem intervalo de
+ * reforço a respeitar no primeiro toque, porque o primeiro toque é o fato.
+ */
+export interface AvisoDeEmergencia {
+  especie: 'EMERGENCIA';
+  quebraId: string;
+  motivo: 'QUEBRA_DE_VIDRO' | 'REVISAO_PENDENTE';
+  degrau: number;
+  faixa: CriticidadeDoGate;
+  papeisComAlcada: readonly string[];
+  quebra: QuebraDeVidro;
+  texto: string;
+  em: Date;
+}
+
+/** O que um canal do host recebe. Duas espécies, um caminho. */
+export type AvisoDoPlantao = AvisoDeAprovacao | AvisoDeEmergencia;
 
 export interface EntregaDeAviso {
   entregue: boolean;
@@ -269,7 +296,7 @@ export interface EntregaDeAviso {
  */
 export interface CanalDeAviso {
   readonly id: string;
-  enviar(aviso: AvisoDeAprovacao): Promise<EntregaDeAviso>;
+  enviar(aviso: AvisoDoPlantao): Promise<EntregaDeAviso>;
 }
 
 /**
@@ -296,14 +323,14 @@ export const CANAL_AUSENTE: CanalDeAviso = {
 /** Canal de bancada: guarda o que receberia e sempre entrega. */
 export class CanalEmMemoria implements CanalDeAviso {
   readonly id = 'canal-em-memoria';
-  readonly enviados: AvisoDeAprovacao[] = [];
+  readonly enviados: AvisoDoPlantao[] = [];
 
-  async enviar(aviso: AvisoDeAprovacao): Promise<EntregaDeAviso> {
+  async enviar(aviso: AvisoDoPlantao): Promise<EntregaDeAviso> {
     this.enviados.push(aviso);
     return {
       entregue: true,
       detalhe: `Aviso entregue ao canal de bancada para ${aviso.papeisComAlcada.length} papéis com alçada.`,
-      referencia: `${aviso.pedidoId}#${aviso.degrau}`
+      referencia: `${aviso.especie === 'APROVACAO' ? aviso.pedidoId : aviso.quebraId}#${aviso.degrau}`
     };
   }
 }
@@ -315,8 +342,24 @@ export interface AtoDeAviso {
   entrega: EntregaDeAviso;
 }
 
+export interface AtoDeAvisoDeEmergencia {
+  aviso: AvisoDeEmergencia;
+  canal: string;
+  entrega: EntregaDeAviso;
+}
+
 export interface DiarioDeAviso {
   registrarAviso(ato: AtoDeAviso): void;
+  /**
+   * O chamado da emergência, entregue ou não.
+   *
+   * Método próprio, e não um parâmetro a mais no anterior, porque o elo que
+   * entra na cadeia é de outro tipo: uma investigação que lê `chamado não
+   * entregue` precisa saber se ninguém foi acordado para DECIDIR ou se ninguém
+   * soube que a porta JÁ TINHA SIDO ABERTA. São perguntas diferentes, e a
+   * segunda é a que tem consequência imediata.
+   */
+  registrarAvisoDeEmergencia(ato: AtoDeAvisoDeEmergencia): void;
 }
 
 /** O que a tela mostra sobre o chamado de uma pendência. */
@@ -326,8 +369,24 @@ export interface AvisoNaTela {
   texto: string;
 }
 
+/** O que a tela mostra sobre o chamado de uma quebra de vidro. */
+export interface AvisoDeEmergenciaNaTela {
+  quebraId: string;
+  motivo: AvisoDeEmergencia['motivo'];
+  entregue: boolean;
+  texto: string;
+}
+
 export interface ResumoDoPlantao {
   avisos: readonly AtoDeAviso[];
+  /**
+   * Os chamados da emergência, em lista própria.
+   *
+   * Separados dos de aprovação porque são outro ato — e porque uma tela que os
+   * misturasse ordenaria a quebra de vidro pela urgência de uma pendência,
+   * quando ela não é pendência: já aconteceu.
+   */
+  emergencias: readonly AtoDeAvisoDeEmergencia[];
   entregues: number;
   naoEntregues: number;
   /** Chamados que não tinham a quem chamar: nenhum papel com alçada na faixa. */
@@ -336,10 +395,17 @@ export interface ResumoDoPlantao {
 
 const RESUMO_VAZIO: ResumoDoPlantao = Object.freeze({
   avisos: Object.freeze([]) as readonly AtoDeAviso[],
+  emergencias: Object.freeze([]) as readonly AtoDeAvisoDeEmergencia[],
   entregues: 0,
   naoEntregues: 0,
   semAlcada: 0
 });
+
+/** O que o plantão consulta sobre emergências. */
+export interface EmergenciasNoPlantao {
+  vigentes(agora: Date): readonly QuebraDeVidro[];
+  pendentesDeRevisao(agora: Date): readonly QuebraDeVidro[];
+}
 
 export interface FilaDeAprovacao {
   pendencias(): readonly PendenciaDeAprovacao[];
@@ -359,6 +425,14 @@ export interface DependenciasDoPlantao {
   papeisConhecidos: readonly string[];
   relogio: Relogio;
   canal?: CanalDeAviso;
+  /**
+   * As quebras de vidro, quando o host as tem.
+   *
+   * Ausente significa que o plantão não fala de emergência — e não que não há
+   * emergência. A distinção importa porque o silêncio aqui seria o pior de
+   * todos: a quebra de vidro é o evento mais urgente deste produto.
+   */
+  emergencias?: EmergenciasNoPlantao;
   antecedencia?: JanelasDeAviso;
   reforco?: JanelasDeAviso;
   diario?: DiarioDeAviso;
@@ -415,6 +489,45 @@ function textoDoAviso(
   }
 }
 
+/**
+ * A frase da emergência.
+ *
+ * Note o que NÃO entra: a justificativa em texto livre que a pessoa escreveu ao
+ * quebrar o vidro. Ela vai para a cadeia e para a revisão, onde é lida inteira
+ * por quem tem que julgá-la; num canal que pode ser um SMS ou o visor de um
+ * pager, copiar texto livre de origem humana é o caminho conhecido para
+ * vazar, num aparelho sem controle de acesso, o que o ADR-0007 mantém fora da
+ * decisão. A natureza declarada — taxonomia fechada — informa sem expor.
+ */
+function textoDaEmergencia(
+  quebra: QuebraDeVidro,
+  motivo: AvisoDeEmergencia['motivo'],
+  papeis: readonly string[]
+): string {
+  const p = quebra.pedido;
+  const onde = `${p.zonaId} (endpoint ${p.endpointId}, criticidade ${p.criticidade})`;
+  const quem =
+    papeis.length === 0
+      ? 'NENHUM papel desta instalação responde por esta faixa'
+      : `Respondem por esta faixa: ${[...papeis].sort().join(', ')}`;
+
+  if (motivo === 'QUEBRA_DE_VIDRO') {
+    return (
+      `QUEBRA DE VIDRO em curso. ${p.invocadaPor} assumiu o acesso de ${p.personId} ` +
+      `a ${onde} por ${p.natureza}. A porta está aberta desde ` +
+      `${quebra.abertaEm.toISOString()} e fecha sozinha em ` +
+      `${quebra.expiraEm.toISOString()}. Isto não é um pedido de autorização: ` +
+      `já aconteceu, e vai a revisão obrigatória. ${quem}.`
+    );
+  }
+  return (
+    `A janela de emergência de ${p.personId} em ${onde}, invocada por ` +
+    `${p.invocadaPor} por ${p.natureza}, fechou e a quebra de vidro ` +
+    `${quebra.id} continua SEM REVISÃO. A exceção só se paga com a prestação de ` +
+    `contas, e esta pendência não vence nem some com o tempo. ${quem}.`
+  );
+}
+
 function horaCurta(data: Date): string {
   return `${String(data.getHours()).padStart(2, '0')}:${String(data.getMinutes()).padStart(2, '0')}`;
 }
@@ -430,6 +543,20 @@ function linhaDoAto(ato: AtoDeAviso): AvisoNaTela {
   };
 }
 
+function linhaDoAtoDeEmergencia(ato: AtoDeAvisoDeEmergencia): AvisoDeEmergenciaNaTela {
+  const quando = horaCurta(ato.aviso.em);
+  const assunto =
+    ato.aviso.motivo === 'QUEBRA_DE_VIDRO' ? 'Quebra de vidro' : 'Revisão pendente';
+  return {
+    quebraId: ato.aviso.quebraId,
+    motivo: ato.aviso.motivo,
+    entregue: ato.entrega.entregue,
+    texto: ato.entrega.entregue
+      ? `${assunto} comunicada às ${quando} por ${ato.canal} a ${ato.aviso.papeisComAlcada.length} papéis.`
+      : `${assunto}: ninguém foi informado. ${ato.entrega.detalhe}`
+  };
+}
+
 /**
  * O plantão.
  *
@@ -441,6 +568,20 @@ export class PlantaoDeAprovacao {
   private readonly estado = new Map<string, EstadoDoChamado>();
   /** O último chamado de cada pedido, para a tela não esquecer o ciclo anterior. */
   private readonly ultimoAto = new Map<string, AtoDeAviso>();
+  /**
+   * As emergências já comunicadas, por quebra e por motivo.
+   *
+   * Conjunto, e não intervalo de reforço: a emergência é comunicada UMA vez por
+   * fato — uma quando o vidro quebra, outra quando a janela fecha com a revisão
+   * em aberto — e nunca é repetida pelo canal. A razão é a que criou o intervalo
+   * de reforço no chamado de aprovação, lida ao contrário: a revisão pendente
+   * não vence nem some, então insistir por canal a cada ciclo tocaria para
+   * sempre, e um canal que toca para sempre é um canal que a equipe desliga.
+   * A permanência da dívida é trabalho da TELA, que a mostra enquanto existir; o
+   * canal carrega FATOS, e um fato se comunica uma vez.
+   */
+  private readonly emergenciasComunicadas = new Set<string>();
+  private readonly atosDeEmergencia = new Map<string, AtoDeAvisoDeEmergencia>();
   private readonly antecedencia: JanelasDeAviso;
   private readonly reforco: JanelasDeAviso;
   private readonly canal: CanalDeAviso;
@@ -474,7 +615,12 @@ export class PlantaoDeAprovacao {
    */
   async despachar(): Promise<ResumoDoPlantao> {
     const pendencias = this.deps.fila.pendencias();
-    if (pendencias.length === 0) return RESUMO_VAZIO;
+    // A fila vazia já não encerra o ciclo. Encerrava, e o defeito era exatamente
+    // o que este produto chama de negativa silenciosa: a instalação em que
+    // ninguém pediu aprovação nenhuma é justamente a instalação em que o vidro
+    // foi quebrado — porque quebrar o vidro é o que se faz quando não dá tempo
+    // de pedir.
+    if (pendencias.length === 0 && this.deps.emergencias === undefined) return RESUMO_VAZIO;
 
     const agora = this.deps.relogio.agora();
     const atos: AtoDeAviso[] = [];
@@ -493,6 +639,7 @@ export class PlantaoDeAprovacao {
       const degrau = (anterior?.degrau ?? 0) + 1;
       const papeisComAlcada = await this.papeisComAlcada(faixa);
       const aviso: AvisoDeAprovacao = {
+        especie: 'APROVACAO',
         pedidoId: pendencia.pedidoId,
         motivo,
         degrau,
@@ -527,12 +674,97 @@ export class PlantaoDeAprovacao {
       this.estado.set(chave, { degrau, ultimoEm: agora });
     }
 
+    const emergencias = await this.despacharEmergencias(agora);
+    for (const ato of emergencias) {
+      if (ato.aviso.papeisComAlcada.length === 0) semAlcada += 1;
+      if (ato.entrega.entregue) entregues += 1;
+    }
+
+    const total = atos.length + emergencias.length;
     return {
       avisos: atos,
+      emergencias,
       entregues,
-      naoEntregues: atos.length - entregues,
+      naoEntregues: total - entregues,
       semAlcada
     };
+  }
+
+  /**
+   * A varredura da emergência.
+   *
+   * Duas passagens, e a ordem entre elas é a ordem da urgência: primeiro o que
+   * está acontecendo agora, depois a dívida que ficou. Quem recebe os dois no
+   * mesmo minuto precisa ler o fato em curso antes do débito de ontem.
+   *
+   * A falta de `emergencias` nas dependências não é ausência de emergência — é
+   * ausência de fonte. O plantão então não fala de emergência nenhuma, e é a
+   * tela que denuncia o buraco, pelo mesmo desenho que `CANAL_AUSENTE` usa.
+   */
+  private async despacharEmergencias(agora: Date): Promise<readonly AtoDeAvisoDeEmergencia[]> {
+    const fonte = this.deps.emergencias;
+    if (!fonte) return [];
+
+    const atos: AtoDeAvisoDeEmergencia[] = [];
+    const candidatas: { quebra: QuebraDeVidro; motivo: AvisoDeEmergencia['motivo'] }[] = [
+      ...fonte.vigentes(agora).map((quebra) => ({ quebra, motivo: 'QUEBRA_DE_VIDRO' as const })),
+      // A janela já fechada e a revisão ainda aberta. `pendentesDeRevisao`
+      // devolve também as ativas; elas já foram comunicadas acima como o fato em
+      // curso, e comunicá-las de novo como dívida no mesmo minuto diria duas
+      // coisas diferentes sobre o mesmo acesso.
+      ...fonte
+        .pendentesDeRevisao(agora)
+        .filter((quebra) => quebra.estado === 'EXPIRADA')
+        .map((quebra) => ({ quebra, motivo: 'REVISAO_PENDENTE' as const }))
+    ];
+
+    for (const { quebra, motivo } of candidatas) {
+      const chave = `${quebra.id}::${motivo}`;
+      if (this.emergenciasComunicadas.has(chave)) continue;
+
+      const faixa = criticidadeDoGate(quebra.pedido.criticidade);
+      // Quem responde pela faixa é a melhor aproximação que este produto tem de
+      // "quem responde pela área", e a aproximação está declarada: alçada para
+      // decidir e responsabilidade pela zona não são a mesma pergunta. Usar a
+      // porta que existe é preferível a inventar uma segunda verdade sobre a
+      // hierarquia do hospital — que é o que `AutoridadeDoHost` existe para
+      // impedir.
+      const papeisComAlcada = await this.papeisComAlcada(faixa);
+      const aviso: AvisoDeEmergencia = {
+        especie: 'EMERGENCIA',
+        quebraId: quebra.id,
+        motivo,
+        degrau: 1,
+        faixa,
+        papeisComAlcada,
+        quebra,
+        texto: textoDaEmergencia(quebra, motivo, papeisComAlcada),
+        em: agora
+      };
+
+      const entrega =
+        papeisComAlcada.length === 0
+          ? {
+              entregue: false,
+              detalhe:
+                'Nenhum papel desta instalação responde por esta faixa de criticidade. ' +
+                'A porta foi aberta por afirmação de uma pessoa e não há a quem comunicar ' +
+                'o fato: a revisão depende de alguém receber alçada, não de insistência.'
+            }
+          : await this.canal.enviar(aviso);
+
+      const ato: AtoDeAvisoDeEmergencia = { aviso, canal: this.canal.id, entrega };
+      atos.push(ato);
+      this.atosDeEmergencia.set(chave, ato);
+      this.deps.diario?.registrarAvisoDeEmergencia(ato);
+      // Marcado depois da entrega, e marcado mesmo quando ela falha: um canal
+      // que recusou não fica melhor sendo chamado de novo no minuto seguinte, e
+      // a falha já entrou na cadeia e está na tela. O que reabre o assunto é o
+      // fato seguinte — a janela fechar sem revisão —, não o relógio.
+      this.emergenciasComunicadas.add(chave);
+    }
+
+    return atos;
   }
 
   /** O que a tela mostra por pendência — inclusive quando ninguém foi avisado. */
@@ -552,6 +784,16 @@ export class PlantaoDeAprovacao {
    */
   linhasAcumuladas(): readonly AvisoNaTela[] {
     return [...this.ultimoAto.values()].map((ato) => linhaDoAto(ato));
+  }
+
+  /**
+   * As linhas da emergência de qualquer ciclo — comunicar é ato de uma vez só.
+   *
+   * Uma linha por FATO, não por quebra: o vidro quebrado e a revisão cobrada
+   * são dois avisos sobre coisas diferentes, e a tela mostra os dois.
+   */
+  linhasAcumuladasDeEmergencia(): readonly AvisoDeEmergenciaNaTela[] {
+    return [...this.atosDeEmergencia.values()].map((ato) => linhaDoAtoDeEmergencia(ato));
   }
 
   /**

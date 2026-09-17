@@ -139,3 +139,10 @@ O padrão é específico o bastante para virar regra de revisão: **toda porta
 declarada deve ter, na bancada, quem a chame** — e a bancada é o sistema
 montado, não um teste isolado. Uma capacidade que só é exercida em teste é
 uma capacidade que não existe em produção.
+
+Uma quarta vez, e desta a regra já existia: o ADR-0023 entregou a quebra de
+vidro inteira e o plantão nunca foi avisado dela. O que mudou é que o defeito
+foi **declarado ao ser cometido**, na seção "o que esta decisão não resolve",
+em vez de descoberto meses depois — e é assim que se paga uma dívida que ainda
+vai existir: escrevendo-a no lugar em que quem vier depois vai tropeçar nela.
+O ADR-0024 a quitou.

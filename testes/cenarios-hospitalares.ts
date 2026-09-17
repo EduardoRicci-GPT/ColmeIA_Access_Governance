@@ -17,7 +17,12 @@ import { ESCOPOS_DE_DELEGACAO, aprovarCofre, materialDoCofre, montarBancada, tic
 import { PedidoDeExcecao, RegistroDeResponsabilidades } from '../packages/governanca';
 import { explicarAcesso } from '../packages/narrativa/explicacao';
 import { ordenarHabilitacoes, ordenarResponsabilidades } from '../packages/assurance-ui/painel';
-import { avisosDaEmergencia } from '../packages/governanca';
+import {
+  ALCADAS_HOSPITALARES,
+  CANAL_AUSENTE,
+  PlantaoDeAprovacao,
+  avisosDaEmergencia
+} from '../packages/governanca';
 import { PolicyEngine, REGRAS_HOSPITALARES_BASE } from '../packages/policy-engine';
 import { resumirDivergencias } from '../packages/narrativa/resumo';
 import { montarPainel } from '../packages/assurance-ui/painel';
@@ -1313,6 +1318,203 @@ async function b4(): Promise<void> {
   );
 }
 
+async function b5(): Promise<void> {
+  grupo('B5 · quando o vidro quebra, o plantão chama — e chama uma vez por fato');
+  const b = montarBancada();
+  await tick(b);
+  b.canal.enviados.length = 0;
+
+  // O cofre é CRITICAL: janela de quinze minutos, a mais curta do produto.
+  const quebra = b.emergencias.invocar({
+    id: 'VIDRO-B5',
+    personId: 'p-rui',
+    relationshipId: 'vin-rui',
+    endpointId: 'ep-cofre-psico',
+    zonaId: 'z-farmacia',
+    criticidade: 'CRITICAL',
+    natureza: 'PARADA_CARDIORRESPIRATORIA',
+    justificativa: 'Parada no leito 3; psicotrópico do carro de emergência.',
+    invocadaPor: 'rui.seguranca',
+    em: b.relogio.agora()
+  });
+  verificar('a quebra é aceita', 'id' in quebra);
+  if (!('id' in quebra)) return;
+
+  const chamado = await tick(b, 60_000);
+  igual('a volta seguinte comunica a emergência', chamado.plantao.emergencias.length, 1);
+  const primeiro = chamado.plantao.emergencias[0]!;
+  igual('e é a espécie da emergência, não a da aprovação', primeiro.aviso.especie, 'EMERGENCIA');
+  igual('pelo fato em curso', primeiro.aviso.motivo, 'QUEBRA_DE_VIDRO');
+  verificar('entregue pelo canal do host', primeiro.entrega.entregue, primeiro.entrega.detalhe);
+  verificar(
+    'o texto diz que não é pedido de autorização: já aconteceu',
+    primeiro.aviso.texto.includes('já aconteceu'),
+    primeiro.aviso.texto
+  );
+  // O canal pode ser o visor de um pager, sem controle de acesso. A natureza
+  // declarada informa; a justificativa em texto livre fica na cadeia e na
+  // revisão, onde quem julga a lê inteira.
+  verificar(
+    'e NÃO carrega a justificativa em texto livre',
+    !primeiro.aviso.texto.includes('leito 3'),
+    primeiro.aviso.texto
+  );
+
+  const calado = await tick(b, 60_000);
+  igual('um minuto depois o mesmo fato não é recomunicado', calado.plantao.emergencias.length, 0);
+
+  // A janela fecha sozinha aos quinze minutos e a revisão continua aberta. Esse
+  // é o segundo fato, e é o que a exceção deixou por pagar.
+  const vencida = await tick(b, 20 * 60_000);
+  igual('fechada a janela sem revisão, sai o segundo chamado', vencida.plantao.emergencias.length, 1);
+  igual(
+    'e ele cobra a prestação de contas',
+    vencida.plantao.emergencias[0]!.aviso.motivo,
+    'REVISAO_PENDENTE'
+  );
+  verificar(
+    'dizendo que esta pendência não vence nem some',
+    vencida.plantao.emergencias[0]!.aviso.texto.includes('não vence nem some'),
+    vencida.plantao.emergencias[0]!.aviso.texto
+  );
+
+  // Aqui está a diferença deliberada em relação ao chamado de aprovação: não há
+  // reforço. A dívida permanece na TELA enquanto existir; o canal carrega
+  // fatos, e um canal que toca para sempre é um canal que a equipe desliga.
+  const insistencia = await tick(b, 4 * 60 * 60_000);
+  igual('e quatro horas depois o canal não insiste', insistencia.plantao.emergencias.length, 0);
+  igual('a dívida, porém, continua aberta', b.emergencias.pendentesDeRevisao().length, 1);
+
+  const eventos = await b.trilha.todos();
+  igual(
+    'a cadeia guarda os dois chamados, com tipo próprio',
+    eventos.filter((e) => e.tipo === 'BreakGlassNotified').length,
+    2
+  );
+  // O `id` do pedido é sugestão do chamador; quem numera a quebra é o registro,
+  // e é o número dele que a cadeia cita.
+  verificar(
+    'e o elo diz a qual fato se refere',
+    eventos.some(
+      (e) =>
+        e.tipo === 'BreakGlassNotified' &&
+        e.resumo.includes(`quebra de vidro ${quebra.id} em curso`)
+    ),
+    quebra.id
+  );
+  verificar(
+    'os papéis vão para a cadeia; as pessoas, nunca',
+    eventos.every(
+      (e) =>
+        e.tipo !== 'BreakGlassNotified' ||
+        (e.dados?.papeisComAlcada as string[]).every((papel) => !papel.includes('.'))
+    )
+  );
+
+  const linhas = b.plantao.linhasAcumuladasDeEmergencia();
+  igual('a tela guarda as duas linhas', linhas.length, 2);
+  verificar(
+    'nomeando o assunto de cada uma',
+    linhas.some((l) => l.texto.startsWith('Quebra de vidro')) &&
+      linhas.some((l) => l.texto.startsWith('Revisão pendente')),
+    linhas.map((l) => l.texto).join(' | ')
+  );
+
+  const painel = montarPainel(b.mundo.topologia, insistencia.assurance, [], {
+    emergencias: {
+      quebras: b.emergencias.todas(),
+      chamados: linhas,
+      avisos: avisosDaEmergencia(),
+      ligada: true
+    }
+  });
+  igual('a quebra chega à tela', painel.emergencias.length, 1);
+  igual('como dívida de revisão', painel.emergencias[0]!.estado, 'REVISAO_PENDENTE');
+  verificar(
+    'com o tempo que a conta está devendo',
+    painel.emergencias[0]!.minutosSemRevisao !== null &&
+      painel.emergencias[0]!.minutosSemRevisao > 4 * 60,
+    String(painel.emergencias[0]!.minutosSemRevisao)
+  );
+  verificar(
+    'e o alto da seção conta quantas se deve',
+    (painel.avisoDaEmergencia ?? '').includes('1 quebra(s) de vidro aguardam revisão'),
+    painel.avisoDaEmergencia ?? '(nulo)'
+  );
+
+  // A tela mostra também o que o motor NÃO deve mostrar: nenhuma quebra carrega
+  // dado clínico, e o texto livre que a pessoa escreveu fica na cadeia.
+  const html = renderizarPainel(painel);
+  verificar('a seção existe no HTML', html.includes('<h2>Quebra de vidro</h2>'));
+  verificar(
+    'com os dois chamados, e não só o último',
+    (html.match(/comunicada às/g) ?? []).length === 2,
+    String((html.match(/comunicada às/g) ?? []).length)
+  );
+  verificar('e sem a justificativa em texto livre', !html.includes('leito 3'));
+
+  // Sem a seção declarada, a tela não finge fila vazia: ela diz que não sabe.
+  const semSecao = montarPainel(b.mundo.topologia, insistencia.assurance);
+  igual('sem a fonte ligada, a lista é vazia', semSecao.emergencias.length, 0);
+  verificar(
+    'mas a tela declara que não sabe, em vez de parecer resolvida',
+    (semSecao.avisoDaEmergencia ?? '').includes('não está ligada'),
+    semSecao.avisoDaEmergencia ?? '(nulo)'
+  );
+}
+
+async function b6(): Promise<void> {
+  grupo('B6 · sem canal, a emergência não alcança ninguém — e isso vira elo');
+  const b = montarBancada();
+  await tick(b);
+
+  // O plantão desta instalação não tem canal configurado. A quebra de vidro
+  // acontece do mesmo jeito; o que muda é que ninguém fica sabendo — e é
+  // exatamente essa linha que uma investigação procura.
+  const semCanal = new PlantaoDeAprovacao({
+    fila: b.gate,
+    autoridade: b.autoridade,
+    papeisConhecidos: ALCADAS_HOSPITALARES.map((alcada) => alcada.papel),
+    relogio: b.relogio,
+    emergencias: b.emergencias,
+    diario: b.diario
+  });
+
+  b.emergencias.invocar({
+    id: 'VIDRO-B6',
+    personId: 'p-marina',
+    relationshipId: 'vin-marina',
+    endpointId: 'ep-farm-2',
+    zonaId: 'z-farmacia',
+    criticidade: 'HIGH',
+    natureza: 'INTERCORRENCIA_CLINICA_GRAVE',
+    justificativa: 'Reposição urgente de antibiótico para sepse em curso.',
+    invocadaPor: 'marina.farmacia',
+    em: b.relogio.agora()
+  });
+
+  const resumo = await semCanal.despachar();
+  igual('o chamado da emergência é computado assim mesmo', resumo.emergencias.length, 1);
+  igual('mas não é entregue', resumo.emergencias[0]!.entrega.entregue, false);
+  igual('o canal declarado é o ausente', resumo.emergencias[0]!.canal, CANAL_AUSENTE.id);
+
+  await b.diario.drenar();
+  const eventos = await b.trilha.todos();
+  verificar(
+    'e a cadeia registra que a porta abriu sem ninguém saber',
+    eventos.some((e) => e.tipo === 'BreakGlassNotificationUndelivered')
+  );
+  // O contraste com o chamado de aprovação é o ponto: um diz que faltou
+  // decisão; o outro, que faltou conhecimento de um fato consumado.
+  verificar(
+    'com tipo distinto do chamado de aprovação não entregue',
+    !eventos.some(
+      (e) =>
+        e.tipo === 'AccessApprovalNotificationUndelivered' && e.dados?.quebraId !== undefined
+    )
+  );
+}
+
 await h7();
 await h8();
 await h9();
@@ -1335,4 +1537,6 @@ await b1();
 await b2();
 await b3();
 await b4();
+await b5();
+await b6();
 fechar('Cenários hospitalares, exceções, competência, explicação e emergência');

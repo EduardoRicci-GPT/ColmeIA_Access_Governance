@@ -140,6 +140,7 @@ export interface DiarioDrenavel {
 /** Sem plantão ligado, o ciclo não chama ninguém — e o relatório diz isso. */
 const PLANTAO_NAO_CONFIGURADO: ResumoDoPlantao = Object.freeze({
   avisos: Object.freeze([]) as ResumoDoPlantao['avisos'],
+  emergencias: Object.freeze([]) as ResumoDoPlantao['emergencias'],
   entregues: 0,
   naoEntregues: 0,
   semAlcada: 0

@@ -22,10 +22,11 @@ import { RelatorioDeAssurance } from '../observability-assurance/assurance';
 import { PhysicalReconciliationResult } from '../physical-state-reconciliation/tipos';
 import { LinhaDeResumo, resumirDivergencias } from '../narrativa/resumo';
 import { PendenciaDeAprovacao } from '../governanca/aprovacao';
-import { AvisoNaTela } from '../governanca/plantao';
+import { AvisoDeEmergenciaNaTela, AvisoNaTela } from '../governanca/plantao';
 import { ConflitoDeSegregacao } from '../policy-engine/segregacao';
 import { ResponsabilidadeTemporaria } from '../governanca/responsabilidade';
 import { HabilitacaoDaPessoa } from '../governanca/competencia';
+import { QuebraDeVidro } from '../governanca/emergencia';
 import { ExplicacaoDeAcesso } from '../narrativa/explicacao';
 import { descreverReconciliacao } from '../narrativa/honestidade';
 import { LinhaDoTempo } from './timeline';
@@ -146,6 +147,22 @@ export interface PainelDeAssurance {
    */
   habilitacoes: readonly LinhaDeHabilitacao[];
   /**
+   * As quebras de vidro — as abertas agora e a dívida de revisão que ficou.
+   *
+   * É a seção que este produto mais precisava ter e mais demorou a ganhar, e a
+   * razão é a que o ADR-0023 registrou ao ser escrito: o desenho da exceção
+   * estava inteiro e ninguém era chamado. Uma exceção cujo custo é a prestação
+   * de contas, sem lugar onde a conta apareça, não é uma exceção controlada —
+   * é uma porta lateral com bom comentário.
+   */
+  emergencias: readonly LinhaDeEmergencia[];
+  /** Quem foi comunicado de cada quebra, ou por que ninguém foi. */
+  chamadosDaEmergencia: readonly AvisoDeEmergenciaNaTela[];
+  /** O aviso do alto da seção: fonte desligada, ou dívida em aberto. */
+  avisoDaEmergencia: string | null;
+  /** Ressalvas das janelas de emergência em sombra. */
+  avisosDaEmergencia: readonly string[];
+  /**
    * A explicação completa do caso mais consequente deste ciclo.
    *
    * Uma só, e escolhida deterministicamente. Explicar tudo encheria a tela de
@@ -262,6 +279,86 @@ export function ordenarHabilitacoes(
     );
 }
 
+export type EstadoDaQuebraNaTela = 'ATIVA' | 'REVISAO_PENDENTE' | 'REVISADA';
+
+export interface LinhaDeEmergencia {
+  quebraId: string;
+  personId: string;
+  zonaId: string;
+  endpointId: string;
+  criticidade: string;
+  natureza: string;
+  invocadaPor: string;
+  estado: EstadoDaQuebraNaTela;
+  abertaEm: Date;
+  expiraEm: Date;
+  /** Negativo depois de a janela fechar. */
+  minutosRestantes: number;
+  /** Quanto tempo a prestação de contas está devendo. `null` se já revisada. */
+  minutosSemRevisao: number | null;
+  verdicto: string | null;
+}
+
+const ORDEM_DA_QUEBRA: Record<EstadoDaQuebraNaTela, number> = {
+  ATIVA: 0,
+  REVISAO_PENDENTE: 1,
+  REVISADA: 2
+};
+
+/**
+ * A ordem da emergência: o que está aberto agora, depois a dívida mais velha.
+ *
+ * A inversão em relação a todas as outras filas desta tela é deliberada e vale
+ * ser dita. Nas outras, o topo é o que vence primeiro — o próximo acesso a
+ * parar de funcionar. Aqui não há nada por vencer: a janela fecha sozinha, e o
+ * que fica é uma afirmação de uma pessoa que ninguém conferiu. Por isso a
+ * segunda faixa ordena da MAIS ANTIGA para a mais nova. Uma quebra de vidro
+ * sem revisão há três semanas não ficou menos grave por ter envelhecido; ficou
+ * mais, e uma lista cronológica invertida a empurraria para o rodapé
+ * exatamente enquanto ela piora.
+ *
+ * A revisada permanece na lista, no fim. Some quem quiser esconder que houve
+ * exceção — e a contagem por zona, que é onde a repetição aparece, deixaria de
+ * ter o que ler na tela.
+ */
+export function ordenarQuebrasDeVidro(
+  quebras: readonly QuebraDeVidro[],
+  agora: Date
+): readonly LinhaDeEmergencia[] {
+  return quebras
+    .map((q) => {
+      const ativa = q.estado === 'ATIVA' && agora.getTime() < q.expiraEm.getTime();
+      const estado: EstadoDaQuebraNaTela = q.revisao
+        ? 'REVISADA'
+        : ativa
+          ? 'ATIVA'
+          : 'REVISAO_PENDENTE';
+      return {
+        quebraId: q.id,
+        personId: q.pedido.personId,
+        zonaId: q.pedido.zonaId,
+        endpointId: q.pedido.endpointId,
+        criticidade: q.pedido.criticidade,
+        natureza: q.pedido.natureza,
+        invocadaPor: q.pedido.invocadaPor,
+        estado,
+        abertaEm: q.abertaEm,
+        expiraEm: q.expiraEm,
+        minutosRestantes: (q.expiraEm.getTime() - agora.getTime()) / 60_000,
+        minutosSemRevisao:
+          q.revisao === undefined ? (agora.getTime() - q.abertaEm.getTime()) / 60_000 : null,
+        verdicto: q.revisao?.verdicto ?? null
+      };
+    })
+    .sort(
+      (a, b) =>
+        ORDEM_DA_QUEBRA[a.estado] - ORDEM_DA_QUEBRA[b.estado] ||
+        (a.estado === 'ATIVA'
+          ? a.minutosRestantes - b.minutosRestantes
+          : a.abertaEm.getTime() - b.abertaEm.getTime())
+    );
+}
+
 export interface LinhaDeSegregacao {
   relationshipId: string;
   personId: string;
@@ -340,6 +437,47 @@ export function avisoDeVigenciaEmSombra(aprovacoes: AprovacoesNaTela | undefined
   );
 }
 
+export interface EmergenciasNaTela {
+  /** Todas as quebras conhecidas, ativas, pendentes de revisão e revisadas. */
+  quebras: readonly QuebraDeVidro[];
+  /** O que o plantão comunicou — de qualquer ciclo, porque se comunica uma vez. */
+  chamados?: readonly AvisoDeEmergenciaNaTela[];
+  /** Ressalvas das janelas em sombra. */
+  avisos?: readonly string[];
+  /**
+   * O plantão tem fonte de emergência ligada?
+   *
+   * `false` não é "não houve emergência": é "esta tela não sabe". A distinção é
+   * a mesma que separa `UNKNOWN` de `NO_ACCESS` no estado físico, e vale ainda
+   * mais aqui, porque quem quebra o vidro é quem não teve tempo de pedir.
+   */
+  ligada: boolean;
+}
+
+/**
+ * O aviso mais alto da seção da emergência.
+ *
+ * Duas frases possíveis e nenhuma delas é silêncio. Sem fonte ligada, a tela
+ * declara que não sabe. Com fonte ligada e dívida em aberto, ela conta quanto
+ * se deve — porque uma revisão pendente não vence, não some e não se resolve
+ * por decurso de prazo, e um número que só cresce precisa estar visível
+ * enquanto cresce.
+ */
+export function avisoDaEmergencia(emergencias: EmergenciasNaTela | undefined): string | null {
+  if (!emergencias || emergencias.ligada === false) {
+    return (
+      'A quebra de vidro não está ligada nesta instalação. A tela não sabe se alguma porta ' +
+      'foi aberta por afirmação de emergência — e não saber não é o mesmo que não ter havido.'
+    );
+  }
+  const devendo = emergencias.quebras.filter((q) => q.revisao === undefined).length;
+  if (devendo === 0) return null;
+  return (
+    `${devendo} quebra(s) de vidro aguardam revisão. A exceção se paga com prestação de ` +
+    'contas: esta fila não vence, não esvazia com o tempo e só fecha com verdicto de gente.'
+  );
+}
+
 /**
  * As seções que dependem de portas opcionais.
  *
@@ -352,6 +490,7 @@ export interface SecoesDoPainel {
   segregacao?: SegregacaoNaTela;
   responsabilidades?: readonly LinhaDeResponsabilidade[];
   habilitacoes?: readonly LinhaDeHabilitacao[];
+  emergencias?: EmergenciasNaTela;
   explicacao?: ExplicacaoDeAcesso;
 }
 
@@ -361,7 +500,7 @@ export function montarPainel(
   timelines: readonly LinhaDoTempo[] = [],
   secoes: SecoesDoPainel = {}
 ): PainelDeAssurance {
-  const { aprovacoes, segregacao } = secoes;
+  const { aprovacoes, segregacao, emergencias } = secoes;
   const paiPorId = new Map<string, string | null>(topologia.nos.map((no) => [no.id, no.paiId]));
   for (const endpoint of topologia.endpoints) paiPorId.set(endpoint.id, endpoint.zonaId);
 
@@ -408,6 +547,12 @@ export function montarPainel(
     avisoDeSegregacaoDesligada: avisoDeSegregacaoDesligada(segregacao),
     responsabilidades: secoes.responsabilidades ?? [],
     habilitacoes: secoes.habilitacoes ?? [],
+    emergencias: emergencias
+      ? ordenarQuebrasDeVidro(emergencias.quebras, relatorio.calculadoEm)
+      : [],
+    chamadosDaEmergencia: emergencias?.chamados ?? [],
+    avisoDaEmergencia: avisoDaEmergencia(emergencias),
+    avisosDaEmergencia: emergencias?.avisos ?? [],
     explicacao: secoes.explicacao ?? null
   };
 }

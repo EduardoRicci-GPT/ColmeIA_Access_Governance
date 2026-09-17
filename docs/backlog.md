@@ -67,8 +67,10 @@
 | 22d | Explicar acesso sob demanda, e não só o caso escolhido | a tela é um relatório estático; escolher um caso por ciclo é o que cabe nela. Perguntar por qualquer pessoa × recurso exige servidor, e o motor já responde |
 | 22c | Estado histórico para reconstituir o passado | hoje o verdicto retroativo é recusado, porque guardamos atos e não o estado do mundo. Responder de verdade exige snapshot por instante, com custo de armazenamento a decidir |
 | 23 | ~~Break-glass assistencial~~ — **feito**, ADR-0023 | a emergência abre a porta agora e não aprova nada: janela curta em sombra, três atos na cadeia, revisão obrigatória que não se fecha sozinha, e o direito revogado quando a janela fecha |
-| 23b | Chamar o plantão quando o vidro quebra | o plantão avisa sobre a fila de aprovação e não sobre a emergência, que é o evento mais urgente do produto. A porta existe; falta ligá-la |
-| 23c | Revisão pendente na tela, e repetição no Health Score | a revisão fica no registro para sempre, e ninguém a vê. Três quebras na mesma zona deveriam pesar no score |
+| 23b | ~~Chamar o plantão quando o vidro quebra~~ — **feito**, ADR-0024 | o plantão ganhou uma segunda espécie de aviso. O de aprovação CONVOCA e insiste; o de emergência INFORMA e se comunica uma vez por fato — o vidro quebrando, e a janela fechando com a revisão em aberto. Tipo próprio na cadeia (`BreakGlassNotified`), e o não entregue também |
+| 23c | ~~Revisão pendente na tela~~ — **feito**, ADR-0024 | a dívida aparece ordenada da MAIS ANTIGA para a mais nova, ao contrário de toda outra fila desta tela: aqui nada está por vencer, e uma afirmação que ninguém conferiu não melhora com o tempo |
+| 23e | Repetição de quebra de vidro no Health Score | `contagemPorZona()` existe e nenhum score a lê. Três quebras na mesma zona no mesmo mês é achado de governança, e exige atravessar um indicador pela hierarquia do assurance |
+| 23d | Quem responde pela área ≠ quem tem alçada na faixa | o chamado da emergência procura os papéis com alçada, que é a melhor porta existente e não é a mesma pergunta. Responsabilidade por zona exige uma porta nova no host |
 | 24 | Normalização de eventos de fabricante com proveniência | hoje cada adaptador entrega evento já no vocabulário do domínio; com três fabricantes reais, a tradução vira o lugar onde o significado se perde em silêncio |
 | 25 | Vínculo biométrico pseudonimizado | quando houver biometria, o subsistema recebe um identificador, não o RH da pessoa. A fronteira já existe para dado clínico (ADR-0007) e vale igual aqui |
 

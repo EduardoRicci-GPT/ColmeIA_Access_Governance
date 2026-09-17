@@ -24,8 +24,13 @@
 import { EscalationCase } from '../dominio/escalonamento';
 import { CartaoDeEscopo, ItemDaFila, PainelDeAssurance } from './painel';
 import { EstadoDaPendencia, PendenciaDeAprovacao } from '../governanca/aprovacao';
-import { AvisoNaTela } from '../governanca/plantao';
-import { LinhaDeHabilitacao, LinhaDeResponsabilidade, LinhaDeSegregacao } from './painel';
+import { AvisoDeEmergenciaNaTela, AvisoNaTela } from '../governanca/plantao';
+import {
+  LinhaDeEmergencia,
+  LinhaDeHabilitacao,
+  LinhaDeResponsabilidade,
+  LinhaDeSegregacao
+} from './painel';
 import { ExplicacaoDeAcesso, LeituraDaCamada } from '../narrativa/explicacao';
 import { LinhaDoTempo } from './timeline';
 
@@ -257,6 +262,13 @@ function prazoLegivel(minutos: number | null): string {
   return minutos < 0 ? `vencida há ${medida}` : `vence em ${medida}`;
 }
 
+/** Duração decorrida, sem o vocabulário de prazo — nada aqui está por vencer. */
+function decorridoLegivel(minutos: number): string {
+  const horas = Math.floor(Math.abs(minutos) / 60);
+  const resto = Math.round(Math.abs(minutos) % 60);
+  return horas > 0 ? `${horas} h ${String(resto).padStart(2, '0')} min` : `${resto} min`;
+}
+
 const ROTULO_DO_ESTADO: Record<EstadoDaPendencia, string> = {
   VENCIDA: 'vigência vencida',
   AGUARDANDO_SEGUNDA_ASSINATURA: 'falta a segunda assinatura',
@@ -349,6 +361,62 @@ function responsabilidadeHtml(linha: LinhaDeResponsabilidade): string {
         <span class="selo mono" style="font-size:12px">competência: ${escapar(linha.competenciaNaConcessao)}</span>
       </div>
       <p class="porque">${escapar(linha.motivo)} — designada por ${escapar(linha.concedidaPor)}.</p>
+    </article>`;
+}
+
+/**
+ * A quebra de vidro na tela.
+ *
+ * A ativa é vermelha porque está acontecendo; a pendente de revisão também,
+ * e essa segunda escolha é a que merece defesa. O instinto de interface manda
+ * esmaecer o que já passou. Aqui o que já passou é justamente a dívida: uma
+ * porta foi aberta por afirmação de uma pessoa, e enquanto ninguém conferir
+ * essa afirmação a organização está devendo — não se deve menos por ter
+ * demorado mais.
+ */
+function emergenciaHtml(
+  linha: LinhaDeEmergencia,
+  chamados: readonly AvisoDeEmergenciaNaTela[]
+): string {
+  const selo =
+    linha.estado === 'ATIVA'
+      ? 'BLOQUEIA'
+      : linha.estado === 'REVISAO_PENDENTE'
+        ? 'EXIGE_REVISAO'
+        : 'SUSTENTA';
+  const prazo =
+    linha.estado === 'ATIVA'
+      ? `janela fecha ${escapar(prazoLegivel(linha.minutosRestantes))}`
+      : linha.minutosSemRevisao === null
+        ? `revisada: ${escapar(linha.verdicto ?? '—')}`
+        : `sem revisão há ${escapar(decorridoLegivel(linha.minutosSemRevisao))}`;
+  // Os dois chamados possíveis — o fato e a cobrança da revisão — aparecem os
+  // dois. Mostrar só o último diria que a quebra foi comunicada uma vez, quando
+  // foram dois avisos sobre coisas diferentes; e é a ausência do primeiro que
+  // uma investigação procura.
+  const aviso =
+    chamados.length === 0
+      ? '<p class="porque" data-severidade="alta">Ninguém foi comunicado desta quebra de vidro.</p>'
+      : chamados
+          .map(
+            (chamado) =>
+              `<p class="porque"${chamado.entregue ? '' : ' data-severidade="alta"'}>${escapar(chamado.texto)}</p>`
+          )
+          .join('');
+  return `
+    <article class="aprovacao" data-estado="${linha.estado === 'REVISADA' ? 'VIGENTE' : 'VENCIDA'}">
+      <header>
+        <h3>${escapar(linha.personId)} · ${escapar(linha.zonaId)}</h3>
+        <span class="mono" style="font-size:12px;color:var(--ink-muted)">${escapar(linha.quebraId)}</span>
+      </header>
+      <div class="selos">
+        <span class="leitura" data-l="${selo}">${escapar(linha.estado.toLowerCase().replace('_', ' '))}</span>
+        <span class="selo acao mono tabular">${prazo}</span>
+        <span class="selo mono" style="font-size:12px">${escapar(linha.criticidade)}</span>
+      </div>
+      <p class="porque">${escapar(linha.natureza)} — invocada por ${escapar(linha.invocadaPor)} em
+      ${escapar(linha.endpointId)}, às ${escapar(linha.abertaEm.toISOString())}.</p>
+      ${aviso}
     </article>`;
 }
 
@@ -528,6 +596,19 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
           <tbody>${painel.habilitacoes.map(habilitacaoHtml).join('')}</tbody>
         </table></div>`;
 
+  const chamadosPorQuebra = new Map<string, AvisoDeEmergenciaNaTela[]>();
+  for (const chamado of painel.chamadosDaEmergencia) {
+    const lista = chamadosPorQuebra.get(chamado.quebraId) ?? [];
+    lista.push(chamado);
+    chamadosPorQuebra.set(chamado.quebraId, lista);
+  }
+  const emergencias =
+    painel.emergencias.length === 0
+      ? '<p class="vazio">Nenhuma quebra de vidro registrada. Onde a fonte está ligada, isto é a notícia boa desta tela.</p>'
+      : painel.emergencias
+          .map((linha) => emergenciaHtml(linha, chamadosPorQuebra.get(linha.quebraId) ?? []))
+          .join('');
+
   const explicacao =
     painel.explicacao === null
       ? '<p class="vazio">Nenhum caso selecionado para explicação neste ciclo.</p>'
@@ -636,6 +717,22 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
     vencida, e por fim a vigente com o prazo à vista — quem poderia renovar precisa ver o prazo enquanto ele
     ainda corre.</p>
     ${habilitacoes}
+
+    <h2>Quebra de vidro</h2>
+    <p class="subtitulo">A exceção que troca autorização prévia por prestação de contas posterior. Em curso no
+    topo, depois a dívida MAIS ANTIGA — ao contrário de todas as outras filas desta tela, porque aqui nada está
+    por vencer: o que fica é uma afirmação que ninguém conferiu, e ela não melhora com o tempo.</p>
+    ${
+      painel.avisoDaEmergencia === null
+        ? ''
+        : `<p class="ressalva-linha" data-severidade="alta"><strong>Prestação de contas.</strong> ${escapar(painel.avisoDaEmergencia)}</p>`
+    }
+    ${
+      painel.avisosDaEmergencia.length === 0
+        ? ''
+        : `<p class="ressalva-linha"><strong>Janelas em sombra.</strong> ${escapar(painel.avisosDaEmergencia[0]!)}</p>`
+    }
+    <div class="fila">${emergencias}</div>
 
     <h2>Explicação do caso mais consequente</h2>
     <p class="subtitulo">Uma pergunta, duas respostas: o que a organização quer, e o que o equipamento confirmou.

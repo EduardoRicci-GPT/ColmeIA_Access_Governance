@@ -21,6 +21,7 @@ import {
   ordenarResponsabilidades
 } from '../packages/assurance-ui/painel';
 import { explicarAcesso } from '../packages/narrativa/explicacao';
+import { avisosDaEmergencia } from '../packages/governanca';
 import { PolicyEngine, REGRAS_HOSPITALARES_BASE } from '../packages/policy-engine';
 import { renderizarPainel } from '../packages/assurance-ui/render';
 
@@ -62,7 +63,27 @@ bancada.mundo = {
 };
 await tick(bancada, 3 * 60_000);
 
-// 09:50 — noventa minutos depois, nada foi confirmado. O risco amadurece.
+// 08:25 — parada no leito 3 da UTI. O cofre de psicotrópicos é CRITICAL e o
+// gate exige duas assinaturas de pessoas distintas; as duas estão ocupadas,
+// possivelmente com o mesmo paciente. O vidro é quebrado, a janela é de quinze
+// minutos, e a revisão nasce aberta.
+bancada.emergencias.invocar({
+  id: 'VIDRO-DEMO',
+  personId: 'p-clara',
+  relationshipId: 'vin-clara',
+  endpointId: 'ep-cofre-psico',
+  zonaId: 'z-farmacia',
+  criticidade: 'CRITICAL',
+  natureza: 'PARADA_CARDIORRESPIRATORIA',
+  justificativa: 'Parada em curso; psicotrópico do carro de emergência, sem tempo de deliberar.',
+  invocadaPor: 'clara.enfermagem',
+  em: bancada.relogio.agora()
+});
+await tick(bancada, 60_000);
+
+// 09:50 — noventa minutos depois, nada foi confirmado. O risco amadurece, e a
+// janela da emergência já fechou há mais de uma hora sem que ninguém revisasse:
+// é a dívida que a seção de quebra de vidro existe para não deixar sumir.
 const relatorio = await tick(bancada, 90 * 60_000);
 
 const integridade = await bancada.trilha.verificarIntegridade();
@@ -110,6 +131,14 @@ const painel = montarPainel(bancada.mundo.topologia, relatorio.assurance, timeli
     bancada.relogio.agora()
   ),
   habilitacoes: ordenarHabilitacoes(habilitacoes, bancada.relogio.agora()),
+  emergencias: {
+    quebras: bancada.emergencias.todas(),
+    // Comunicar é ato de uma vez só, então a tela lê o acumulado — nunca o
+    // ciclo corrente, que estaria vazio noventa minutos depois do fato.
+    chamados: bancada.plantao.linhasAcumuladasDeEmergencia(),
+    avisos: avisosDaEmergencia(),
+    ligada: true
+  },
   explicacao,
   aprovacoes: {
   fila: bancada.gate.pendencias(),
