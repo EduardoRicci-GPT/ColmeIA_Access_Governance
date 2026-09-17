@@ -32,6 +32,7 @@ import {
   DiarioDeAprovacao,
   MaterialDeRevisao
 } from '../governanca/aprovacao';
+import { AtoDeAviso, DiarioDeAviso } from '../governanca/plantao';
 import { EventoDeDominio } from '../dominio/eventos';
 import { TrilhaDeAcesso } from './trilha';
 
@@ -101,7 +102,23 @@ function projetar(material: MaterialDeRevisao): Record<string, unknown> {
  * que alguém drene. Quem drena é quem sabe quando é seguro gravar: no ciclo, o
  * orquestrador; na bancada, o teste.
  */
-export class DiarioNaTrilha implements DiarioDeAprovacao {
+/** Frase determinística para o chamado, entregue ou não. */
+function resumoDoAviso(ato: AtoDeAviso): string {
+  const { aviso } = ato;
+  const onde = `${aviso.pendencia.nomeDoEndpoint} (${aviso.pendencia.criticidade})`;
+  const alvo =
+    aviso.papeisComAlcada.length === 0
+      ? 'nenhum papel com alçada nesta instalação'
+      : `${aviso.papeisComAlcada.length} papéis com alçada (${[...aviso.papeisComAlcada].sort().join(', ')})`;
+  const cabeca =
+    `Chamado ${aviso.degrau} por ${aviso.motivo} sobre o acesso de ` +
+    `${aviso.pendencia.personId} em ${onde}, dirigido a ${alvo}`;
+  return ato.entrega.entregue
+    ? `${cabeca}. Entregue pelo canal ${ato.canal}.`
+    : `${cabeca}. NÃO entregue: ${ato.entrega.detalhe}`;
+}
+
+export class DiarioNaTrilha implements DiarioDeAprovacao, DiarioDeAviso {
   private readonly pendentes: EventoDeDominio[] = [];
   private sequencia = 0;
 
@@ -163,6 +180,55 @@ export class DiarioNaTrilha implements DiarioDeAprovacao {
         ...(ato.tipo === 'VENCIDA' ? { aprovadores: [...ato.aprovadores] } : {})
       },
       resumo: resumoDoAto(ato)
+    });
+  }
+
+  /**
+   * O chamado a quem pode decidir, entregue ou não.
+   *
+   * Os dois desfechos entram na cadeia, e o não entregue é o que mais importa:
+   * numa instalação sem canal configurado, ele é o único registro de que a
+   * fila venceu de madrugada sem que ninguém fosse acordado. Gravar só o
+   * sucesso produziria uma trilha em que a operação parece silenciosa porque
+   * correu bem.
+   *
+   * Sem `decisionOrigin`: chamar gente não é decisão de ninguém — é a máquina
+   * convocando, e o ADR-0003 chama isso de CONSULTIVO.
+   */
+  registrarAviso(ato: AtoDeAviso): void {
+    this.sequencia += 1;
+    const prefixo = this.opcoes.prefixoDeId ?? 'APROV';
+    const id = `${prefixo}-${String(this.sequencia).padStart(5, '0')}`;
+    const tipo = ato.entrega.entregue
+      ? 'AccessApprovalNotified'
+      : 'AccessApprovalNotificationUndelivered';
+    const { aviso } = ato;
+
+    this.pendentes.push({
+      id,
+      tipo,
+      ocorridoEm: aviso.em,
+      registradoEm: aviso.em,
+      origemDeIngestao: 'LOCAL_EVENT',
+      idempotencyKey: `${aviso.pedidoId}::${tipo}::${aviso.motivo}::${aviso.degrau}`,
+      organizationId: this.opcoes.organizationId,
+      facilityId: this.opcoes.facilityId,
+      endpointId: aviso.pendencia.endpointId,
+      personId: aviso.pendencia.personId,
+      dados: {
+        pedidoId: aviso.pedidoId,
+        motivo: aviso.motivo,
+        degrau: aviso.degrau,
+        faixa: aviso.faixa,
+        // Papéis, nunca pessoas: quem está de plantão hoje é fato do host, e
+        // copiá-lo para cá criaria uma segunda verdade sobre a escala.
+        papeisComAlcada: [...aviso.papeisComAlcada].sort(),
+        canal: ato.canal,
+        entregue: ato.entrega.entregue,
+        detalhe: ato.entrega.detalhe,
+        referencia: ato.entrega.referencia
+      },
+      resumo: resumoDoAviso(ato)
     });
   }
 

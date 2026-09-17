@@ -92,7 +92,9 @@ const ROTULO: Readonly<Record<TipoDeEvento, string>> = Object.freeze({
   EscalationResolved: 'Caso de escalonamento encerrado',
   AccessApprovalRequested: 'Aprovação humana solicitada',
   AccessApprovalDecided: 'Decisão humana registrada',
-  AccessApprovalExpired: 'Vigência da aprovação vencida'
+  AccessApprovalExpired: 'Vigência da aprovação vencida',
+  AccessApprovalNotified: 'Quem tem alçada foi chamado',
+  AccessApprovalNotificationUndelivered: 'Chamado não alcançou ninguém'
 });
 
 function horaCompleta(data: Date): string {

@@ -54,7 +54,13 @@ export type TipoDeEvento =
   // que CONCEDE o acesso era justamente o que não deixava elo.
   | 'AccessApprovalRequested'
   | 'AccessApprovalDecided'
-  | 'AccessApprovalExpired';
+  | 'AccessApprovalExpired'
+  // O chamado a quem pode decidir. Entra na cadeia inclusive — e sobretudo —
+  // quando NÃO foi entregue: uma instalação sem canal configurado precisa
+  // deixar rastro de que a fila venceu sem ninguém ser acordado, senão a
+  // ausência de aviso vira a única parte da operação sem registro.
+  | 'AccessApprovalNotified'
+  | 'AccessApprovalNotificationUndelivered';
 
 export interface EventoDeDominio {
   id: string;

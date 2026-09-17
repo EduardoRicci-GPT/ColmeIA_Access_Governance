@@ -11,12 +11,15 @@
 // ---------------------------------------------------------------------------
 
 import { RelogioFixo } from '../packages/dominio/tempo';
-import { TrilhaDeAcesso } from '../packages/auditoria';
+import { DiarioNaTrilha, TrilhaDeAcesso } from '../packages/auditoria';
 import {
   ALCADAS_HOSPITALARES,
   AutoridadeEmMemoria,
+  CanalEmMemoria,
   GateDeAcesso,
-  MaterialDeRevisao
+  JANELAS_PADRAO,
+  MaterialDeRevisao,
+  PlantaoDeAprovacao
 } from '../packages/governanca';
 import { Endpoint, Gateway, NoDeHierarquia, ProviderConnection, Topologia } from '../packages/dominio/topologia';
 import { Person, Relationship, Role } from '../packages/dominio/entitlement';
@@ -200,6 +203,9 @@ export interface Bancada {
   assurance: ObservabilityAssuranceEngine;
   trilha: TrilhaDeAcesso;
   gate: GateDeAcesso;
+  diario: DiarioNaTrilha;
+  plantao: PlantaoDeAprovacao;
+  canal: CanalEmMemoria;
   autoridade: AutoridadeEmMemoria;
   registros: RegistrosDeAcessoEmMemoria;
   entitlements: EntitlementsEmMemoria;
@@ -232,7 +238,25 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
   autoridade.credenciar('rita.diretoria', 'token-rita');
   autoridade.credenciar('paulo.diretoria', 'token-paulo');
   autoridade.credenciar('sofia.seguranca', 'token-sofia');
-  const gate = new GateDeAcesso(autoridade, relogio);
+  // O diário existia e ninguém o montava fora de um teste: o gate era
+  // construído sem ele, nada drenava, e os três atos da aprovação humana —
+  // pedido, decisão, vencimento — não chegavam à cadeia em execução nenhuma.
+  // A bancada é o sistema montado; se ela não liga, produção também não liga.
+  const diario = new DiarioNaTrilha(trilha, { organizationId: 'org-sinergentia' });
+  const gate = new GateDeAcesso(autoridade, relogio, JANELAS_PADRAO, diario);
+
+  // O canal é do host. Aqui é o de bancada; numa instalação sem canal, o
+  // padrão é `CANAL_AUSENTE`, que recusa a entrega e diz por quê — é o que
+  // impede "ninguém foi avisado" de virar silêncio.
+  const canal = new CanalEmMemoria();
+  const plantao = new PlantaoDeAprovacao({
+    fila: gate,
+    autoridade,
+    papeisConhecidos: ALCADAS_HOSPITALARES.map((alcada) => alcada.papel),
+    relogio,
+    canal,
+    diario
+  });
 
   const ciclo = new CicloDeGovernanca({
     relogio,
@@ -246,7 +270,9 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     trilha,
     // O ciclo abre o pedido que a política exigiu; decidir continua sendo ato
     // humano, por `aprovarCofre()`.
-    aberturaDeAprovacao: gate
+    aberturaDeAprovacao: gate,
+    plantao,
+    diarioDeAprovacao: diario
   });
 
   const mundo: MundoLogico = {
@@ -270,6 +296,9 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     assurance,
     trilha,
     gate,
+    diario,
+    plantao,
+    canal,
     autoridade,
     registros,
     entitlements,

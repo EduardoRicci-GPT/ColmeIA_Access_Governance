@@ -122,7 +122,7 @@ Nenhum destes tocou hardware real. São reproduzidos de forma determinística pe
 
 ## 8. Bateria
 
-`npm run acesso:verificar` — **453 verificações, todas passando**.
+`npm run acesso:verificar` — **500 verificações, todas passando**.
 
 | Suíte | Verificações |
 |---|---|
@@ -134,7 +134,7 @@ Nenhum destes tocou hardware real. São reproduzidos de forma determinística pe
 | Projeção de contexto e credenciais | 25 |
 | Simulador v2 e políticas de repetição | 33 |
 | Honestidade de estado | 28 |
-| Aprovação humana: conteúdo, alçada, vigência, trilha e fila | 100 |
+| Aprovação humana: conteúdo, alçada, vigência, trilha, fila e chamado | 147 |
 | Calibragem dos pesos do Health Score | 24 |
 | Contratos estruturais do MPE-H (com diferencial) | 49 |
 | Leitura 360° e a porta do R-VEP | 21 |
@@ -158,19 +158,24 @@ Mais três gates: `acesso:lint` (pureza — sem DOM, sem Node, `strict`,
 4. **A calibração dos pesos do Health Score é um palpite informado.** Reproduz o
    exemplo da especificação, o que prova coerência com a intenção — não que os
    pesos estejam certos para um hospital específico.
-5. **A aprovação humana tem registro e tela; falta quem avise.** Identidade,
-   alçada congelada no instante da decisão, ligação ao conteúdo, prazo de
-   vigência e elo na cadeia (ADR-0016); fila na tela, ordenada por urgência de
-   porta fechada, e o ciclo abrindo o pedido que a política exigiu (ADR-0017).
-   O que falta agora é **notificação**: a fila aparece para quem abrir a tela, e
-   um prazo ainda pode vencer de madrugada sem ninguém ver. Falta também a
-   integração do `AutoridadeDoHost` com o RBAC real de um aplicativo de gestão,
-   e aprovar pela própria tela — que exige decidir como a sessão autenticada do
-   host chega ao gate.
-6. **As janelas de vigência estão em SOMBRA.** Doze horas na faixa crítica vêm
-   da escala 12×36; as outras três descem por proporção declarada. Enquanto
-   estiverem em sombra elas só podem exigir nova revisão — nunca conceder
-   acesso —, e é essa direção única que autoriza usá-las antes de calibrar.
+5. **A aprovação humana chama um cargo, não uma pessoa.** Identidade, alçada
+   congelada no instante da decisão, ligação ao conteúdo, prazo de vigência e
+   elo na cadeia (ADR-0016); fila na tela, ordenada por urgência de porta
+   fechada, e o ciclo abrindo o pedido que a política exigiu (ADR-0017); e
+   agora o chamado a quem tem alçada, antes de o prazo vencer, com a ausência
+   de canal registrada em vez de silenciada (ADR-0018). O que falta é a
+   **escala de plantão**: o produto sabe quais papéis podem decidir, e não quem
+   está acordado às 02h40 — isso é fato do aplicativo de gestão e chega pela
+   porta. Falta também um canal real (`CanalEmMemoria` é bancada), o desfecho
+   para o chamado que ninguém responde, a integração do `AutoridadeDoHost` com
+   o RBAC real, e aprovar pela própria tela — que exige decidir como a sessão
+   autenticada do host chega ao gate.
+6. **As janelas de vigência e as do aviso estão em SOMBRA.** Doze horas na
+   faixa crítica vêm da escala 12×36, e sessenta minutos de antecedência vêm da
+   passagem de plantão dessa mesma escala; as demais descem por proporção
+   declarada. Enquanto estiverem em sombra, uma janela de vigência só pode
+   exigir nova revisão e um aviso só pode chamar gente — nunca conceder acesso
+   —, e é essa direção única que autoriza usá-las antes de calibrar.
 11. **O canal lexical do R-VEP não está ligado.** A porta existe e a ausência é
     declarada, mas a leitura 360° hoje opera com um canal só. Ligar o segundo
     exige Python no host e uma decisão sobre onde ele roda.

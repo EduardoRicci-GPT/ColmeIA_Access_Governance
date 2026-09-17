@@ -12,7 +12,10 @@
 | 3 | Adaptador PostgreSQL contra a suíte já existente | tira o produto da memória de processo; expõe concorrência e volume |
 | 4 | ~~Aprovação humana completa: identidade, alçada, prazo, trilha~~ — **feito**, ADR-0016 | o registro responde quem aprovou, com que alçada naquele instante, até quando vale, e deixa elo na cadeia |
 | 5 | ~~Fila de aprovação na tela, com o prazo à vista~~ — **feito**, ADR-0017 | a fila aparece ordenada por urgência de porta fechada, o ciclo passou a abrir o pedido que a política exigiu (ninguém abria), e a vigente entra na lista com o prazo à vista |
-| 5b | Notificação de quem tem alçada | a fila aparece para quem abre a tela; um prazo ainda pode vencer de madrugada sem ninguém ver. Quem é acordado, por qual canal, com qual escalonamento se ninguém responde |
+| 5b | ~~Notificação de quem tem alçada~~ — **feito**, ADR-0018 | o ciclo chama os papéis com alçada antes de o prazo vencer, a ausência de canal virou fato registrado em vez de silêncio, e o diário da aprovação — que ninguém drenava fora dos testes — passou a chegar à cadeia |
+| 5c | Escala de plantão pela porta do host | hoje o chamado alcança um CARGO, não uma pessoa: o produto sabe quais papéis podem decidir, e não quem está acordado às 02h40. Exige que o aplicativo de gestão entregue a escala |
+| 5d | Primeiro canal de aviso real | `CanalEmMemoria` é bancada. O primeiro canal de verdade (aplicativo, ramal, plantão) é integração, e a porta já está no lugar |
+| 5e | Desfecho para o chamado sem resposta | passado o último degrau, o sistema insiste para sempre. Fechar o laço exige decidir o que é desfecho aceitável quando ninguém com alçada responde — governança do hospital, não software |
 
 ## Depois — destrava a implantação
 
@@ -33,7 +36,7 @@
 | 13 | Segregação de funções como política de primeira classe | hoje existe como fábrica de regra (`regraDeSegregacao`); falta modelagem no papel e tela |
 | 14 | Anti-passback e ocupação máxima | capacidades já previstas em `CapacidadeDeEndpoint`, sem motor correspondente |
 | 15 | Camada de IA sobre o assurance | resumo por público, agrupamento e priorização — sempre sobre dados determinísticos e sempre atrás da guarda de honestidade |
-| 16 | Notificação e plantão | quem é acordado, por qual severidade, em qual canal, com qual escalonamento se ninguém responder |
+| 16 | Notificação e plantão para o assurance | o ADR-0018 resolveu o chamado da APROVAÇÃO; divergência física, endpoint offline e caso de escalonamento continuam sem canal — e a porta `CanalDeAviso` já existe para ser reaproveitada |
 
 ## Explicitamente fora de escopo por ora
 
@@ -49,6 +52,7 @@
 
 | Dívida | Onde | Por que foi aceita |
 |---|---|---|
+| Estado do plantão apenas em memória | `PlantaoDeAprovacao` | o degrau e o instante do último toque vivem num `Map`; reiniciar o processo faz o primeiro toque recomeçar. Erra para o lado de chamar de novo, que é o lado certo — mas precisa de persistência junto com o item 3 |
 | Repositórios apenas em memória | `packages/persistencia` | a porta está definida e a suíte roda contra ela; trocar o substrato não muda os testes |
 | Índice de auditoria sem paginação | `IndiceDeAuditoria` | volume real ainda desconhecido; paginação sem medida seria palpite |
 | `MockAccessProvider.agoraDaUltimaOperacao()` deriva o tempo da telemetria | `packages/adapters/mock` | evita injetar relógio no adaptador; funciona porque o simulador é determinístico, mas é uma amarração que um adaptador real não deve copiar |

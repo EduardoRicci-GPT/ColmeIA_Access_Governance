@@ -27,7 +27,14 @@ import { DiarioNaTrilha, TrilhaDeAcesso } from '../packages/auditoria';
 import { PendenciaDeAprovacao } from '../packages/governanca';
 import { montarPainel } from '../packages/assurance-ui/painel';
 import { renderizarPainel } from '../packages/assurance-ui/render';
-import { montarBancada, tick } from './bancada';
+import { aprovarCofre as aprovarCofreNaBancada, materialDoCofre, montarBancada, tick } from './bancada';
+import {
+  CANAL_AUSENTE,
+  CanalEmMemoria,
+  CONSTANTES_DE_AVISO,
+  PlantaoDeAprovacao,
+  lerJanelasDeAviso
+} from '../packages/governanca';
 import { AutoridadeDoHost, Criticidade as CriticidadeDoGate, DecisaoDeGate } from '../packages/mpeh-kernel/human-gate/tipos';
 
 function bancadaDoGate() {
@@ -703,6 +710,267 @@ grupo('O prazo chega à tela com o aviso de sombra colado');
   verificar(
     'a seção existe mesmo vazia, dizendo que não há pedido',
     renderizarPainel(painel).includes('Nenhum pedido de aprovação humana')
+  );
+}
+
+grupo('O ato humano chega à cadeia porque alguém drena o diário');
+{
+  // O diário existia desde o ADR-0016 e nada o montava fora de um teste: o
+  // gate era construído sem ele e ninguém drenava. Os três atos da aprovação
+  // humana eram capacidade, não registro. Esta verificação é sobre o SISTEMA
+  // MONTADO — se a bancada não liga, produção não liga.
+  const b = montarBancada();
+  const relatorio = await tick(b);
+
+  verificar('o ciclo drenou atos para a cadeia', relatorio.atosDeAprovacaoRegistrados > 0);
+  igual('e nada ficou represado no diário', b.diario.pendencias, 0);
+
+  const eventos = await b.trilha.todos();
+  verificar(
+    'o pedido de aprovação virou elo',
+    eventos.some((evento) => evento.tipo === 'AccessApprovalRequested')
+  );
+  verificar('e a cadeia continua íntegra depois disso', relatorio.integridadeDaTrilha.integra);
+}
+{
+  const b = montarBancada();
+  await tick(b);
+  const segundo = await tick(b, 60_000);
+  // Reentrância: o pedido é idempotente, então a segunda volta não deve
+  // reabrir nada. Se voltasse a drenar pedido, o ciclo estaria criando
+  // registro novo por cima da assinatura já colhida.
+  igual('rodar de novo não cria pedido novo na cadeia', segundo.atosDeAprovacaoRegistrados, 0);
+}
+
+grupo('Quem tem alçada é chamado — e o chamado tem endereço');
+{
+  const b = montarBancada();
+  const relatorio = await tick(b);
+
+  igual('o ciclo despachou um chamado', relatorio.plantao.avisos.length, 1);
+  const aviso = relatorio.plantao.avisos[0]!;
+  igual('pelo motivo certo', aviso.aviso.motivo, 'DECISAO_PENDENTE');
+  igual('no primeiro degrau', aviso.aviso.degrau, 1);
+  igual('e foi entregue', relatorio.plantao.entregues, 1);
+  verificar(
+    'dirigido apenas a quem decide faixa CRITICA',
+    [...aviso.aviso.papeisComAlcada].sort().join(',') ===
+      'diretoria-administrativa,diretoria-tecnica',
+    aviso.aviso.papeisComAlcada.join(',')
+  );
+  verificar(
+    'o texto nomeia a porta e a pessoa, sem depender de modelo',
+    aviso.aviso.texto.includes('Cofre') && aviso.aviso.texto.includes('p-rui'),
+    aviso.aviso.texto
+  );
+  verificar(
+    'e o chamado entrou na cadeia',
+    (await b.trilha.todos()).some((evento) => evento.tipo === 'AccessApprovalNotified')
+  );
+}
+{
+  const b = montarBancada();
+  await tick(b);
+  const semEspera = await tick(b, 60_000);
+  igual('um minuto depois ninguém é chamado de novo', semEspera.plantao.avisos.length, 0);
+
+  // O intervalo de reforço da faixa CRITICA são quinze minutos. Sem ele, o
+  // ciclo de um minuto viraria mil avisos por noite — e um canal ignorado
+  // devolve o sistema ao estado que este módulo veio corrigir, com aparência
+  // de estar funcionando.
+  const depois = await tick(b, 15 * 60_000);
+  igual('passado o intervalo, o toque se repete', depois.plantao.avisos.length, 1);
+  igual('e é o segundo degrau, não o primeiro', depois.plantao.avisos[0]!.aviso.degrau, 2);
+}
+
+grupo('Sem canal, ninguém é avisado — e isso é fato registrado, não silêncio');
+{
+  const b = montarBancada();
+  const relatorio = await tick(b);
+  const semCanal = new PlantaoDeAprovacao({
+    fila: b.gate,
+    autoridade: b.autoridade,
+    papeisConhecidos: ALCADAS_HOSPITALARES.map((alcada) => alcada.papel),
+    relogio: b.relogio,
+    diario: b.diario
+  });
+  verificar('o plantão sabe que não tem canal', !semCanal.temCanal);
+
+  const resumo = await semCanal.despachar();
+  igual('o chamado é computado assim mesmo', resumo.avisos.length, 1);
+  igual('mas não é entregue', resumo.entregues, 0);
+  verificar(
+    'e o motivo da não entrega é dito por extenso',
+    resumo.avisos[0]!.entrega.detalhe.includes('Nenhum canal de aviso'),
+    resumo.avisos[0]!.entrega.detalhe
+  );
+  igual('o canal declarado é o ausente', resumo.avisos[0]!.canal, CANAL_AUSENTE.id);
+
+  await b.diario.drenar();
+  verificar(
+    'a não entrega vira elo na cadeia',
+    (await b.trilha.todos()).some(
+      (evento) => evento.tipo === 'AccessApprovalNotificationUndelivered'
+    )
+  );
+
+  const painel = montarPainel(b.mundo.topologia, relatorio.assurance, [], {
+    fila: b.gate.pendencias(),
+    avisos: b.gate.avisosDaVigencia(),
+    chamados: semCanal.linhasParaTela(resumo),
+    temCanal: semCanal.temCanal
+  });
+  verificar(
+    'a tela diz, no alto da seção, que ninguém é chamado',
+    (painel.avisoDeCanalAusente ?? '').includes('Nenhum canal de aviso'),
+    painel.avisoDeCanalAusente ?? '(nulo)'
+  );
+  verificar(
+    'e a linha do cartão começa por "Ninguém foi avisado"',
+    painel.linhasDoPlantao[0]!.texto.startsWith('Ninguém foi avisado'),
+    painel.linhasDoPlantao[0]!.texto
+  );
+  verificar(
+    'o HTML marca a linha como não entregue',
+    renderizarPainel(painel).includes('data-entregue="nao"')
+  );
+}
+{
+  const b = montarBancada();
+  const relatorio = await tick(b);
+  const painel = montarPainel(b.mundo.topologia, relatorio.assurance, [], {
+    fila: b.gate.pendencias(),
+    avisos: b.gate.avisosDaVigencia(),
+    chamados: b.plantao.linhasParaTela(relatorio.plantao),
+    temCanal: b.plantao.temCanal
+  });
+  igual('com canal ligado, não há aviso de canal ausente', painel.avisoDeCanalAusente, null);
+  verificar(
+    'e a linha diz quantos papéis foram chamados',
+    painel.linhasDoPlantao[0]!.texto.includes('2 papéis com alçada'),
+    painel.linhasDoPlantao[0]!.texto
+  );
+}
+
+grupo('Sem ninguém com alçada, o sistema não finge que chamou');
+{
+  // Uma instalação em que o teto de todo papel é MEDIA, diante de uma porta
+  // CRITICAL. Não há a quem recorrer, e dizer "avisamos alguém" produziria
+  // registro de um socorro que não existe.
+  const b = montarBancada();
+  await tick(b);
+  const canal = new CanalEmMemoria();
+  const plantao = new PlantaoDeAprovacao({
+    fila: b.gate,
+    autoridade: new AutoridadeEmMemoria([{ papel: 'coordenacao-de-enfermagem', ate: 'MEDIA' }]),
+    papeisConhecidos: ['coordenacao-de-enfermagem'],
+    relogio: b.relogio,
+    canal,
+    diario: b.diario
+  });
+
+  const resumo = await plantao.despachar();
+  igual('o chamado existe', resumo.avisos.length, 1);
+  igual('e é contado como sem alçada', resumo.semAlcada, 1);
+  igual('não entregue', resumo.entregues, 0);
+  igual('e o canal não chegou a ser acionado', canal.enviados.length, 0);
+  verificar(
+    'o registro diz que o problema é de alçada, não de insistência',
+    resumo.avisos[0]!.entrega.detalhe.includes('não há a quem recorrer') ||
+      resumo.avisos[0]!.entrega.detalhe.includes('Não há a quem recorrer'),
+    resumo.avisos[0]!.entrega.detalhe
+  );
+}
+
+grupo('O aviso chega ANTES de a porta fechar');
+{
+  const b = montarBancada();
+  const primeiro = await tick(b);
+  const material = materialDoCofre(primeiro);
+  await aprovarCofreNaBancada(b, material);
+
+  // Aprovada agora, vigente por doze horas (escala 12×36). Faltando mais de
+  // uma hora, não há o que chamar: chamar cedo demais é ruído, e ruído ensina
+  // a ignorar o canal.
+  const cedo = await tick(b, 60 * 60_000);
+  verificar(
+    'com folga no prazo, nenhum chamado de vencimento',
+    !cedo.plantao.avisos.some((ato) => ato.aviso.motivo === 'PRESTES_A_VENCER')
+  );
+
+  // Dez horas e meia depois da aprovação, faltam menos de sessenta minutos —
+  // a janela de passagem de plantão, o único momento previsível em que quem
+  // tem alçada ainda está no prédio.
+  const perto = await tick(b, 10 * 60 * 60_000);
+  const aviso = perto.plantao.avisos.find((ato) => ato.aviso.motivo === 'PRESTES_A_VENCER');
+  verificar('dentro da antecedência, o chamado sai', aviso !== undefined);
+  verificar(
+    'e ele diz que renovar antes evita a porta fechada',
+    (aviso?.aviso.texto ?? '').includes('Renovar antes'),
+    aviso?.aviso.texto ?? '(sem aviso)'
+  );
+  verificar(
+    'a pendência chamada ainda está VIGENTE — o chamado não espera vencer',
+    aviso?.aviso.pendencia.estado === 'VIGENTE',
+    aviso?.aviso.pendencia.estado ?? '(sem aviso)'
+  );
+}
+{
+  // A tela não pode esquecer o ciclo anterior. Uma vigente com folga no prazo
+  // não gera chamado nesta volta, e mostrar só a volta atual escreveria
+  // "nenhum chamado" embaixo de uma pendência chamada de madrugada.
+  const b = montarBancada();
+  const primeiro = await tick(b);
+  igual('o chamado saiu na primeira volta', primeiro.plantao.avisos.length, 1);
+  await aprovarCofreNaBancada(b, materialDoCofre(primeiro));
+  const calmo = await tick(b, 60 * 60_000);
+  igual('e a volta seguinte não chama ninguém', calmo.plantao.avisos.length, 0);
+
+  igual('a linha do ciclo corrente fica vazia', b.plantao.linhasParaTela(calmo.plantao).length, 0);
+  const acumuladas = b.plantao.linhasAcumuladas();
+  igual('mas a linha acumulada lembra do chamado', acumuladas.length, 1);
+  verificar(
+    'com a hora em que ele saiu',
+    /Chamado 1 às \d{2}:\d{2}/.test(acumuladas[0]!.texto),
+    acumuladas[0]!.texto
+  );
+}
+
+grupo('Recusa não vira pressão, e as janelas do aviso ficam em sombra');
+{
+  const { gate, relogio, autoridade } = bancadaDoGate();
+  await gate.abrir(COFRE, 'ciclo');
+  await gate.decidir(COFRE, {
+    decisao: 'RECUSADO',
+    aprovador: 'rita.diretoria',
+    papel: 'diretoria-tecnica',
+    justificativa: 'Sem necessidade assistencial comprovada neste plantão.',
+    assinatura: 'token-rita'
+  });
+  const plantao = new PlantaoDeAprovacao({
+    fila: gate,
+    autoridade,
+    papeisConhecidos: ALCADAS_HOSPITALARES.map((alcada) => alcada.papel),
+    relogio,
+    canal: new CanalEmMemoria()
+  });
+  const resumo = await plantao.despachar();
+  igual('quem recusou não é cobrado de novo', resumo.avisos.length, 0);
+}
+{
+  const lidas = lerJanelasDeAviso();
+  verificar('as janelas do aviso são lidas em sombra', lidas.emSombra);
+  igual('e cada uma sai com a sua ressalva', lidas.avisos.length, CONSTANTES_DE_AVISO.length);
+  igual('antecedência CRÍTICA é o turno da passagem de plantão', lidas.antecedencia.CRITICA, 60);
+  igual('reforço CRÍTICO é de quinze minutos', lidas.reforco.CRITICA, 15);
+  verificar(
+    'e a ressalva diz que o efeito é só chamar gente',
+    lidas.avisos.every((aviso) => aviso.includes('nunca conceder acesso')),
+    lidas.avisos[0] ?? '(vazio)'
+  );
+  verificar(
+    'toda constante do aviso declara curador',
+    CONSTANTES_DE_AVISO.every((constante) => constante.curador.length > 0)
   );
 }
 

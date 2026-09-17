@@ -22,6 +22,7 @@ import { RelatorioDeAssurance } from '../observability-assurance/assurance';
 import { PhysicalReconciliationResult } from '../physical-state-reconciliation/tipos';
 import { LinhaDeResumo, resumirDivergencias } from '../narrativa/resumo';
 import { PendenciaDeAprovacao } from '../governanca/aprovacao';
+import { AvisoNaTela } from '../governanca/plantao';
 import { descreverReconciliacao } from '../narrativa/honestidade';
 import { LinhaDoTempo } from './timeline';
 
@@ -92,6 +93,22 @@ export interface PainelDeAssurance {
   filaDeAprovacao: readonly PendenciaDeAprovacao[];
   /** Ressalva das janelas em sombra, na mesma lógica do aviso de calibragem. */
   avisoDeVigencia: string | null;
+  /**
+   * O chamado, por pendência: quem foi avisado, ou por que ninguém foi.
+   *
+   * Fica ao lado da fila porque as duas respondem perguntas diferentes. A fila
+   * diz o que precisa de gente; esta linha diz se a gente foi chamada. Uma tela
+   * que mostrasse só a primeira deixaria o operador supor que alguém já sabe.
+   */
+  linhasDoPlantao: readonly AvisoNaTela[];
+  /**
+   * O aviso mais alto desta seção: não há canal configurado.
+   *
+   * Não é ressalva de rodapé. Uma instalação sem canal é uma instalação em que
+   * a fila só alcança quem abrir a tela — exatamente o estado que o chamado
+   * veio corrigir —, e esconder isso faria a seção parecer resolvida.
+   */
+  avisoDeCanalAusente: string | null;
 }
 
 function cartao(health: AccessGovernanceHealth, paiId: string | null): CartaoDeEscopo {
@@ -113,6 +130,25 @@ function cartao(health: AccessGovernanceHealth, paiId: string | null): CartaoDeE
 export interface AprovacoesNaTela {
   fila: readonly PendenciaDeAprovacao[];
   avisos: readonly string[];
+  /** O que o plantão chamou neste ciclo. Vazio não significa "tudo certo". */
+  chamados?: readonly AvisoNaTela[];
+  /** Há canal de aviso ligado nesta instalação? */
+  temCanal?: boolean;
+}
+
+/**
+ * A frase que a tela mostra quando não há canal.
+ *
+ * Aparece mesmo com a fila vazia, e de propósito: a fila esvazia sozinha
+ * quando nada está pendente AGORA, e a ausência de canal continua sendo
+ * verdade sobre a próxima madrugada.
+ */
+export function avisoDeCanalAusente(aprovacoes: AprovacoesNaTela | undefined): string | null {
+  if (!aprovacoes || aprovacoes.temCanal !== false) return null;
+  return (
+    'Nenhum canal de aviso está configurado. Esta fila só alcança quem abrir esta tela — ' +
+    'um prazo que vencer de madrugada vencerá sem que ninguém com alçada seja chamado.'
+  );
 }
 
 /** Frase curta para o alto da fila, quando há janela em sombra. */
@@ -170,7 +206,9 @@ export function montarPainel(
     avisoDeCalibragem: avisoDeSombra(relatorio.arvore.calibragem),
     avisosDeCalibragem: relatorio.arvore.calibragem.avisos,
     filaDeAprovacao: aprovacoes?.fila ?? [],
-    avisoDeVigencia: avisoDeVigenciaEmSombra(aprovacoes)
+    avisoDeVigencia: avisoDeVigenciaEmSombra(aprovacoes),
+    linhasDoPlantao: aprovacoes?.chamados ?? [],
+    avisoDeCanalAusente: avisoDeCanalAusente(aprovacoes)
   };
 }
 

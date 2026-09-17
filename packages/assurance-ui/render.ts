@@ -24,6 +24,7 @@
 import { EscalationCase } from '../dominio/escalonamento';
 import { CartaoDeEscopo, ItemDaFila, PainelDeAssurance } from './painel';
 import { EstadoDaPendencia, PendenciaDeAprovacao } from '../governanca/aprovacao';
+import { AvisoNaTela } from '../governanca/plantao';
 import { LinhaDoTempo } from './timeline';
 
 function escapar(texto: string): string {
@@ -166,6 +167,9 @@ h2{font-size:13px; letter-spacing:.12em; text-transform:uppercase; font-weight:6
 .aprovacao[data-estado="AGUARDANDO_DECISAO"]{border-left-color:var(--atencao)}
 .aprovacao[data-estado="RECUSADA"]{border-left-color:var(--ink-muted)}
 .aprovacao[data-estado="VIGENTE"]{border-left-color:var(--bom)}
+.chamado{margin:8px 0 0; font-size:12.5px; color:var(--ink-muted)}
+.chamado[data-entregue="nao"]{color:var(--critico); font-weight:600}
+.chamado[data-entregue="nao-houve"]{font-style:italic}
 .aprovacao header{display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; justify-content:space-between}
 .aprovacao h3{margin:0; font-size:15.5px; font-weight:600}
 .selo.est-VENCIDA{background:var(--critico-soft); color:var(--critico)}
@@ -174,6 +178,8 @@ h2{font-size:13px; letter-spacing:.12em; text-transform:uppercase; font-weight:6
 .selo.est-VIGENTE{background:var(--bom-soft); color:var(--bom)}
 .ressalva-linha{margin:0 0 16px; font-size:12.5px; color:var(--ink-muted); background:var(--incerto-soft);
   border-left:3px solid var(--incerto); padding:10px 14px; max-width:76ch}
+.ressalva-linha[data-severidade="alta"]{background:var(--critico-soft); color:var(--critico);
+  border-left-color:var(--critico)}
 
 .resumos{display:flex; flex-direction:column; gap:8px; margin:0; padding:0; list-style:none}
 .resumos li{background:var(--surface); border:1px solid var(--line); padding:12px 14px; font-size:14.5px}
@@ -240,7 +246,7 @@ const ROTULO_DO_ESTADO: Record<EstadoDaPendencia, string> = {
   VIGENTE: 'vigente'
 };
 
-function pendenciaHtml(item: PendenciaDeAprovacao): string {
+function pendenciaHtml(item: PendenciaDeAprovacao, chamado: AvisoNaTela | undefined): string {
   // A assinatura traz a alçada DAQUELE instante, não a de hoje. É o que
   // permite responder "essa pessoa podia?" sem depender de o cargo não ter
   // mudado desde então.
@@ -263,7 +269,22 @@ function pendenciaHtml(item: PendenciaDeAprovacao): string {
       </div>
       <p class="porque">${escapar(item.explicacao)}</p>
       ${assinaturas === '' ? '' : `<ul class="estado">${assinaturas}</ul>`}
+      ${chamadoHtml(chamado)}
     </article>`;
+}
+
+/**
+ * A linha do chamado.
+ *
+ * A ausência tem texto próprio e fica visível, em vez de virar espaço em
+ * branco: um cartão sem linha nenhuma diria ao operador que o assunto está
+ * com alguém, quando pode não estar com ninguém.
+ */
+function chamadoHtml(chamado: AvisoNaTela | undefined): string {
+  if (!chamado) {
+    return '<p class="chamado" data-entregue="nao-houve">Nenhum chamado foi disparado para esta pendência neste ciclo.</p>';
+  }
+  return `<p class="chamado" data-entregue="${chamado.entregue ? 'sim' : 'nao'}">${escapar(chamado.texto)}</p>`;
 }
 
 function ocorrenciaHtml(item: ItemDaFila): string {
@@ -378,10 +399,14 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
       ? '<p class="vazio">Nenhuma divergência aberta neste ciclo. Todos os estados desejados têm confirmação física correspondente.</p>'
       : painel.filaDeRisco.map(ocorrenciaHtml).join('');
 
+  const chamadoPorPedido = new Map(painel.linhasDoPlantao.map((linha) => [linha.pedidoId, linha]));
+
   const aprovacoes =
     painel.filaDeAprovacao.length === 0
       ? '<p class="vazio">Nenhum pedido de aprovação humana neste escopo.</p>'
-      : painel.filaDeAprovacao.map(pendenciaHtml).join('');
+      : painel.filaDeAprovacao
+          .map((item) => pendenciaHtml(item, chamadoPorPedido.get(item.pedidoId)))
+          .join('');
 
   const resumos =
     painel.resumo.length === 0
@@ -454,6 +479,11 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
     <p class="subtitulo">Ordenada por urgência de porta fechada: vencida no topo, porque é a única que mudou
     sem ninguém mandar. Depois o que falta assinar, e por fim o que está vigente — com o prazo à vista, que é a
     linha que impede a próxima vencida de existir.</p>
+    ${
+      painel.avisoDeCanalAusente === null
+        ? ''
+        : `<p class="ressalva-linha" data-severidade="alta"><strong>Ninguém é chamado.</strong> ${escapar(painel.avisoDeCanalAusente)}</p>`
+    }
     ${
       painel.avisoDeVigencia === null
         ? ''

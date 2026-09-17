@@ -44,6 +44,7 @@ import {
   RepositorioDeSyncJobs
 } from '../persistencia/repositorios';
 import { MaterialDeRevisao } from '../governanca/aprovacao';
+import { ResumoDoPlantao } from '../governanca/plantao';
 import { chaveDeIdempotencia, correlacaoDeCredencial } from './idempotencia';
 import {
   AvaliacaoDoFreioDeAcesso,
@@ -77,11 +78,46 @@ export interface DependenciasDoCiclo {
    * outro caminho.
    */
   aberturaDeAprovacao?: AberturaDePedidoDeAprovacao;
+  /**
+   * Quem chama a pessoa que pode decidir.
+   *
+   * A fila na tela alcança quem abre a tela, e o vencimento de uma aprovação
+   * crítica cai no meio do plantão seguinte, quando quem a concedeu foi
+   * dormir. Esta porta é o que transforma a fila em chamado.
+   */
+  plantao?: PlantaoDeChamados;
+  /**
+   * Quem leva os atos da aprovação humana para a cadeia.
+   *
+   * O ADR-0016 criou o diário e o ligou ao ledger, e o ponto de drenagem ficou
+   * "quem sabe quando é seguro gravar". Acontece que, fora dos testes, ninguém
+   * sabia: o gate era montado sem diário e nada drenava — os três atos da
+   * aprovação humana existiam como capacidade e não chegavam à cadeia em
+   * nenhuma execução real. Aqui o ciclo assume o papel, porque é ele quem tem
+   * um fim de volta bem definido.
+   */
+  diarioDeAprovacao?: DiarioDrenavel;
 }
 
 export interface AberturaDePedidoDeAprovacao {
   abrir(material: MaterialDeRevisao, solicitadoPor: string): Promise<unknown>;
 }
+
+export interface PlantaoDeChamados {
+  despachar(): Promise<ResumoDoPlantao>;
+}
+
+export interface DiarioDrenavel {
+  drenar(): Promise<number>;
+}
+
+/** Sem plantão ligado, o ciclo não chama ninguém — e o relatório diz isso. */
+const PLANTAO_NAO_CONFIGURADO: ResumoDoPlantao = Object.freeze({
+  avisos: Object.freeze([]) as ResumoDoPlantao['avisos'],
+  entregues: 0,
+  naoEntregues: 0,
+  semAlcada: 0
+});
 
 /**
  * Evento acompanhado do corpo que o assina. O ledger recusa autor vazio, e
@@ -98,6 +134,10 @@ export interface RelatorioDoCiclo {
   acoesLogicas: readonly AcaoDeEntitlement[];
   /** Acessos que a política marcou como REQUIRE_APPROVAL e ninguém aprovou. */
   pendentesDeAprovacao: readonly AcaoDeEntitlement[];
+  /** Quem foi chamado neste ciclo — e quem não pôde ser. */
+  plantao: ResumoDoPlantao;
+  /** Atos da aprovação humana que entraram na cadeia neste ciclo. */
+  atosDeAprovacaoRegistrados: number;
   /**
    * O freio da parceria sobre este lote.
    *
@@ -154,6 +194,18 @@ export class CicloDeGovernanca {
       }
     }
 
+    // 1.8. E quem pode decidir é chamado.
+    //
+    // Depois de abrir, porque um pedido recém-aberto já é motivo de chamado;
+    // e antes de materializar, porque o aviso mais valioso é o da aprovação
+    // que ainda está VIGENTE e vai vencer — ele existe justamente para que a
+    // porta não pare de abrir no meio do próximo plantão. O despacho é
+    // idempotente dentro do intervalo de reforço, então rodar o ciclo a cada
+    // minuto não transforma o canal em ruído.
+    const plantao = this.deps.plantao
+      ? await this.deps.plantao.despachar()
+      : PLANTAO_NAO_CONFIGURADO;
+
     // 2. Materialização.
     const materializacao = await this.materializar(mundo, logica.acoes, eventosDoCiclo);
 
@@ -189,10 +241,21 @@ export class CicloDeGovernanca {
       await this.deps.trilha.registrar(evento, autor);
     }
 
+    // O diário da aprovação humana é drenado AQUI, num ponto único por ciclo.
+    //
+    // A porta do gate é síncrona e o ledger é assíncrono (ADR-0016); o diário
+    // acumula para que a cadeia não dependa de quem ganhou a corrida. Drenar
+    // num ponto determinado é o que torna a cadeia reproduzível — e cada elo
+    // carrega `ocorridoEm`, de modo que a ordem de inserção não apaga a ordem
+    // dos fatos.
+    const atosDeAprovacaoRegistrados = (await this.deps.diarioDeAprovacao?.drenar()) ?? 0;
+
     return {
       momento,
       acoesLogicas: logica.acoes,
       pendentesDeAprovacao: logica.pendentesDeAprovacao,
+      plantao,
+      atosDeAprovacaoRegistrados,
       freio,
       ordensEnviadas: materializacao.enviadas,
       ordensRecusadasPorIdempotencia: materializacao.recusadas,

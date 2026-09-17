@@ -69,7 +69,12 @@ for (const credencial of ['CRED-vin-marina-ep-farm-2', 'CRED-vin-rui-ep-seg-1'])
 
 const painel = montarPainel(bancada.mundo.topologia, relatorio.assurance, timelines, {
   fila: bancada.gate.pendencias(),
-  avisos: bancada.gate.avisosDaVigencia()
+  avisos: bancada.gate.avisosDaVigencia(),
+  // O chamado do último ciclo entra na tela junto da fila. Sem isto, cada
+  // cartão apareceria sem linha de aviso — e um cartão sem linha diria ao
+  // operador que o assunto está com alguém, quando pode não estar com ninguém.
+  chamados: bancada.plantao.linhasAcumuladas(),
+  temCanal: bancada.plantao.temCanal
 });
 const html = renderizarPainel(painel, { documentoCompleto: true });
 
