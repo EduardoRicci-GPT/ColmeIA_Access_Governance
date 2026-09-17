@@ -121,8 +121,8 @@ explícito (`aguardaAprovacao`), e a fila passou a ser filtrada por fato.
   convocar uma decisão.
 - ~~**A revisão pendente não aparece na tela.**~~ Resolvido pelo ADR-0024, com a
   dívida ordenada da mais antiga para a mais nova.
-- **O Health Score não sente a repetição.** Três quebras na mesma zona deveriam
-  pesar; hoje são um número que ninguém lê.
+- ~~**O Health Score não sente a repetição.**~~ Resolvido pelo ADR-0025, que
+  cobra a conta em aberto e a repetição — nunca o ato de quebrar o vidro.
 - **Quem invoca é uma string.** Ligar isso à sessão autenticada do aplicativo
   de gestão é o mesmo trabalho pendente da identidade do aprovador (ADR-0016),
   e aqui é mais grave: a prestação de contas posterior depende inteiramente de

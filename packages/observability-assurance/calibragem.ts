@@ -121,6 +121,27 @@ export const CONSTANTES_DO_HEALTH: readonly ConstanteCalibrada<number>[] = Objec
     'desvioDeRelogio',
     'Penalidade por desvio de relógio',
     'Especificação, item 5 — "clock drift" entre os monitorados'
+  ),
+  peso(
+    'revisaoDeEmergenciaPendente',
+    'Penalidade por quebra de vidro sem a revisão obrigatória',
+    'ADR-0023 — a exceção se paga com prestação de contas posterior; derivado da ' +
+      'revogação pendente e posto ABAIXO dela, porque a porta desta já fechou',
+    RESSALVA_GERAL +
+      ' A direção deste peso é a que merece atenção na calibragem: ele cobra a CONTA em ' +
+      'aberto, nunca o ato de quebrar o vidro. Um peso que penalizasse a invocação criaria ' +
+      'pressão para não invocar — e quem não pode quebrar o vidro escora a porta, empresta ' +
+      'o crachá ou arromba o armário, sem registro nenhum.'
+  ),
+  peso(
+    'emergenciaRecorrente',
+    'Penalidade por repetição de quebra de vidro na mesma zona',
+    'ADR-0025 — repetição como sintoma de modelo de acesso inadequado à zona, não como ' +
+      'antecedente de quem invocou',
+    RESSALVA_GERAL +
+      ' O achado é sobre o DESENHO da organização — escala que não fecha, política que pede ' +
+      'duas assinaturas onde nunca há duas pessoas. Julgar abuso continua sendo jurisdição ' +
+      'humana, e o score não acusa ninguém.'
   )
 ]);
 

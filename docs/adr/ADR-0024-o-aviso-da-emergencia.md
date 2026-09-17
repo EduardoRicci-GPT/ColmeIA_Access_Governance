@@ -110,10 +110,8 @@ contagem por zona — que é onde a repetição aparece — precisa ter o que le
   no código. Responsabilidade por zona exige uma porta nova no host — e inventar
   uma segunda verdade sobre a hierarquia do hospital é o que `AutoridadeDoHost`
   existe para impedir.
-- **O Health Score continua sem sentir a repetição.** `contagemPorZona()` existe
-  e nenhum score a lê. Três quebras na mesma zona no mesmo mês é achado de
-  governança, e atravessar esse indicador pela hierarquia do assurance é
-  trabalho próprio (backlog 23e).
+- ~~**O Health Score continua sem sentir a repetição.**~~ Resolvido pelo
+  ADR-0025, na volta seguinte.
 - **Ninguém confirma que recebeu.** A entrega é o que o canal do host reporta;
   não há acusação de leitura. Uma emergência comunicada a um pager que ficou na
   gaveta é, para esta cadeia, uma emergência comunicada.

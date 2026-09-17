@@ -396,6 +396,10 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     responsabilidades,
     competencias,
     emergencias,
+    // O MESMO registro, pela porta larga. Duas portas sobre um objeto é como
+    // este produto diz, no tipo, que o motor de política não pode ver o
+    // histórico: só a observabilidade pode.
+    historicoDeEmergencias: emergencias,
     // O cofre de psicotrópicos é CRITICAL: a política exige aprovação humana,
     // e o gate exige DUAS pessoas distintas nessa faixa. A aprovação é aberta
     // e decidida em `aprovarCofre()`, contra o material selado.

@@ -47,12 +47,30 @@
 import { RegistroDeCalibracao } from '../mpeh-kernel/calibration/registro';
 import { ConstanteCalibrada } from '../mpeh-kernel/calibration/tipos';
 import { Criticidade } from '../dominio/topologia';
+import { HistoricoDeEmergencias, QuebraDeVidroProjetada } from '../dominio/emergencia';
 import { Relogio } from '../dominio/tempo';
 
 const CURADOR = 'Nível E — governança de acesso ColmeIA';
 const VERIFICADO_EM = '2026-09-17';
 
 export type JanelasDeEmergencia = Record<Criticidade, number>;
+
+/**
+ * Por quanto tempo a repetição continua contando.
+ *
+ * Existe porque o oposto não funciona: sem janela, a contagem de uma zona só
+ * cresce, o score dela nunca volta a subir, e uma unidade que corrigiu a escala
+ * fica marcada para sempre — o que ensina a equipe a ignorar o número em vez de
+ * a consertar a causa.
+ *
+ * Trinta dias não é palpite redondo: é o ciclo de fechamento administrativo e
+ * de escala hospitalar, o período sobre o qual uma coordenação de fato senta e
+ * revisa o que aconteceu. Fica em SOMBRA como todo o resto, e a direção do
+ * efeito é o que autoriza usá-la: a janela decide apenas o que o score NOTA.
+ * Mais curta, esquece antes; mais longa, lembra mais. Nenhuma das duas abre
+ * porta nenhuma.
+ */
+export const JANELA_DE_RECORRENCIA_DIAS = 30;
 
 /**
  * Minutos de porta aberta, por criticidade.
@@ -96,6 +114,22 @@ export const CONSTANTES_DE_EMERGENCIA: readonly ConstanteCalibrada<number>[] = O
     ressalva: RESSALVA
   }))
 );
+
+export const CONSTANTE_DE_RECORRENCIA: ConstanteCalibrada<number> = Object.freeze({
+  id: 'emergencia.janela-de-recorrencia',
+  rotulo: 'Período em que uma quebra de vidro ainda conta como repetição na zona',
+  valor: JANELA_DE_RECORRENCIA_DIAS,
+  estatuto: 'SOMBRA' as const,
+  procedencia:
+    'Ciclo de fechamento administrativo e de escala hospitalar — o período sobre o qual ' +
+    'uma coordenação revisa o que aconteceu na unidade',
+  curador: CURADOR,
+  verificadoEm: VERIFICADO_EM,
+  ressalva:
+    'Janela derivada do ciclo administrativo, não de operação medida nesta instalação. ' +
+    'Enquanto estiver em sombra, o efeito dela é apenas decidir o que o Health Score NOTA ' +
+    '— nunca abrir porta, nunca encerrar revisão, nunca julgar quem invocou.'
+});
 
 export function registroDeEmergencia(): RegistroDeCalibracao {
   return new RegistroDeCalibracao(CONSTANTES_DE_EMERGENCIA);
@@ -188,7 +222,7 @@ function chave(relationshipId: string, endpointId: string): string {
  * não pergunta se a pessoa podia. Quem invoca assume — o controle é posterior,
  * e é por isso que ele precisa existir de verdade.
  */
-export class RegistroDeQuebraDeVidro implements ConsultaDeEmergencia {
+export class RegistroDeQuebraDeVidro implements ConsultaDeEmergencia, HistoricoDeEmergencias {
   private readonly quebras = new Map<string, QuebraDeVidro>();
   private readonly expiracoesAnunciadas = new Set<string>();
   private sequencia = 0;
@@ -301,6 +335,30 @@ export class RegistroDeQuebraDeVidro implements ConsultaDeEmergencia {
       em: revisao.em
     });
     return revisada;
+  }
+
+  /**
+   * A projeção que a observabilidade lê.
+   *
+   * `encerrada` sai do RELÓGIO, e não do campo `estado`, e a diferença importa:
+   * `estado` só vira `EXPIRADA` quando alguém chama `vigentes()`, e um leitor
+   * que não chama nada leria "ativa" sobre uma janela fechada há três horas.
+   * Deduzir do tempo torna a leitura correta independentemente de quem passou
+   * por aqui antes.
+   *
+   * Sem justificativa, sem natureza, sem quem invocou e sem a nota da revisão:
+   * o score orienta prioridade e não precisa de nenhuma delas para isso. Quem
+   * precisa é quem revisa, e essa pessoa lê o registro, não o painel.
+   */
+  projetarParaAssurance(agora: Date): readonly QuebraDeVidroProjetada[] {
+    return [...this.quebras.values()].map((q) => ({
+      quebraId: q.id,
+      endpointId: q.pedido.endpointId,
+      zonaId: q.pedido.zonaId,
+      abertaEm: q.abertaEm,
+      encerrada: agora.getTime() >= q.expiraEm.getTime(),
+      revisada: q.revisao !== undefined
+    }));
   }
 
   /** Quantas vezes se quebrou o vidro nesta zona. Repetição é achado. */

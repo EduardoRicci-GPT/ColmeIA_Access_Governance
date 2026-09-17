@@ -49,7 +49,13 @@ const indicadores: IndicadoresDeAssurance = {
   backlogDeEventos: 0,
   bateriasCriticas: 0,
   desviosDeRelogio: 0,
-  pesoDeRevogacoesPendentes: 1
+  pesoDeRevogacoesPendentes: 1,
+  // O exemplo da especificação não tem emergência nenhuma, e é isso que ele
+  // prova aqui: acrescentar a leitura da quebra de vidro não mexeu no 87.
+  revisoesDeEmergenciaPendentes: 0,
+  pesoDeRevisoesDeEmergencia: 0,
+  repeticoesDeEmergencia: 0,
+  zonasComRepeticao: []
 };
 
 grupo('Item 7 · o exemplo da especificação, reproduzido');
@@ -98,6 +104,83 @@ proximo(
 grupo('Criticidade do local pondera a revogação pendente');
 const emAreaCritica = calcularHealth(escopo, { ...indicadores, pesoDeRevogacoesPendentes: 2 });
 proximo('numa área CRITICAL, a mesma pendência custa o dobro', 100 - emAreaCritica.score, 13 + 3);
+
+grupo('A emergência cobra a conta, nunca o ato de quebrar o vidro');
+// A verificação mais importante deste bloco é a primeira, e ela é sobre
+// incentivo, não sobre aritmética. Se invocar a exceção custasse score, o
+// produto estaria cobrando da equipe exatamente o comportamento que quer que
+// ela tenha — e o que se faz quando não se pode quebrar o vidro é escorar a
+// porta, emprestar o crachá ou arrombar o armário, sem registro nenhum.
+const comEmergenciaRevisada = calcularHealth(escopo, {
+  ...indicadores,
+  revisoesDeEmergenciaPendentes: 0,
+  pesoDeRevisoesDeEmergencia: 0
+});
+igual('quebra invocada e revisada não move o score', comEmergenciaRevisada.score, health.score);
+verificar(
+  'e não cria componente nenhum',
+  comEmergenciaRevisada.components.every((c) => c.id !== 'REVISOES_DE_EMERGENCIA')
+);
+
+const comContaAberta = calcularHealth(escopo, {
+  ...indicadores,
+  revisoesDeEmergenciaPendentes: 1,
+  pesoDeRevisoesDeEmergencia: 1
+});
+proximo('a conta em aberto custa −2', 100 - comContaAberta.score, 13 + 2);
+proximo(
+  'e numa porta CRITICAL custa o dobro, como a revogação pendente',
+  100 -
+    calcularHealth(escopo, {
+      ...indicadores,
+      revisoesDeEmergenciaPendentes: 1,
+      pesoDeRevisoesDeEmergencia: 2
+    }).score,
+  13 + 4
+);
+verificar(
+  'abaixo da revogação pendente, porque a porta desta já fechou',
+  (comContaAberta.components.find((c) => c.id === 'REVISOES_DE_EMERGENCIA')?.penalidade ?? 0) <
+    (comContaAberta.components.find((c) => c.id === 'REVOGACOES_PENDENTES')?.penalidade ?? 0)
+);
+
+grupo('Repetição é achado sobre o desenho, e o rótulo é obrigado a dizer isso');
+const semRepeticao = calcularHealth(escopo, { ...indicadores, repeticoesDeEmergencia: 0 });
+verificar(
+  'uma quebra sozinha na zona não é repetição',
+  semRepeticao.components.every((c) => c.id !== 'EMERGENCIA_RECORRENTE')
+);
+const repetida = calcularHealth(escopo, {
+  ...indicadores,
+  repeticoesDeEmergencia: 2,
+  zonasComRepeticao: ['z-farmacia']
+});
+proximo('duas repetições custam −6', 100 - repetida.score, 13 + 6);
+const componenteDaRepeticao = repetida.components.find((c) => c.id === 'EMERGENCIA_RECORRENTE');
+verificar(
+  'o rótulo aponta o caminho normal de acesso, e não quem invocou',
+  (componenteDaRepeticao?.rotulo ?? '').includes('caminho normal de acesso'),
+  componenteDaRepeticao?.rotulo ?? '(ausente)'
+);
+verificar(
+  'e a evidência é a zona — nunca uma pessoa',
+  componenteDaRepeticao?.evidencias.join(',') === 'z-farmacia',
+  componenteDaRepeticao?.evidencias.join(',') ?? '(vazio)'
+);
+// O teto existe pela mesma razão de todos os outros: uma zona com histórico
+// ruim não pode zerar sozinha o score do hospital inteiro, senão o painel para
+// de distinguir "isto aqui precisa de atenção" de "tudo está perdido".
+proximo(
+  'e a família tem teto, como todas as outras',
+  calcularHealth(escopo, { ...indicadores, repeticoesDeEmergencia: 40 }).components.find(
+    (c) => c.id === 'EMERGENCIA_RECORRENTE'
+  )?.penalidade ?? 0,
+  15
+);
+verificar(
+  'o número continua abrindo com a emergência dentro',
+  100 - somaDosComponentes(repetida) === repetida.score
+);
 
 grupo('Item 8 · o score do pai NÃO é a média dos filhos');
 const b = montarBancada();

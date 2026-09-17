@@ -37,6 +37,7 @@ import {
 } from '../governanca/responsabilidade';
 import { ConsultaDeCompetencia, SEM_COMPETENCIAS } from '../governanca/competencia';
 import { ConsultaDeEmergencia, SEM_EMERGENCIAS } from '../governanca/emergencia';
+import { HistoricoDeEmergencias } from '../dominio/emergencia';
 import { AfetadosPelaDecisao } from '../contratos-estruturais/filtro-zero';
 
 export interface MundoLogico {
@@ -103,6 +104,16 @@ export interface MundoLogico {
    * emergência presumida.
    */
   emergencias?: ConsultaDeEmergencia;
+  /**
+   * O histórico das quebras de vidro, para a observabilidade.
+   *
+   * Campo separado de `emergencias`, e não o mesmo objeto com mais métodos: o
+   * motor de política enxerga só o booleano, porque um motor que soubesse
+   * quantas vezes a pessoa já quebrou o vidro estaria a um passo de decidir a
+   * porta com base nisso — e aí a exceção teria virado antecedente. Julgar
+   * repetição é jurisdição humana (ADR-0023); notá-la é trabalho do score.
+   */
+  historicoDeEmergencias?: HistoricoDeEmergencias;
 }
 
 /**

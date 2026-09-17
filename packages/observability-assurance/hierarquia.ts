@@ -19,6 +19,7 @@
 
 import { Endpoint, NoDeHierarquia, StatusDeConectividade, Topologia, endpointsSob } from '../dominio/topologia';
 import { DiagnosticoDeLatencia } from '../dominio/telemetria';
+import { QuebraDeVidroProjetada } from '../dominio/emergencia';
 import { PhysicalReconciliationResult } from '../physical-state-reconciliation/tipos';
 import { AccessGovernanceHealth, EvidenciasDeHealth, calcularHealth } from './health';
 import { PesosLidos, lerPesos } from './calibragem';
@@ -34,6 +35,18 @@ export interface EntradaDaHierarquia {
   backlogDeEventos?: number;
   backlogDeSincronizacaoPorEndpoint?: ReadonlyMap<string, number>;
   bateriasCriticasPorEndpoint?: ReadonlySet<string>;
+  /**
+   * As quebras de vidro conhecidas, já projetadas pela governança.
+   *
+   * Chegam inteiras e são recortadas por escopo aqui, como tudo o mais: o
+   * escopo da UTI vê as da UTI, o da rede vê todas. A janela de recorrência é
+   * aplicada contra `calculatedAt`, e não contra o relógio do sistema, porque
+   * um score que dependesse da hora em que alguém abriu a tela não seria
+   * reproduzível.
+   */
+  quebrasDeVidro?: readonly QuebraDeVidroProjetada[];
+  /** Milissegundos em que a repetição ainda conta. Sem ela, conta tudo. */
+  janelaDeRecorrenciaMs?: number;
   calculatedAt: Date;
   /**
    * Pesos lidos pela porta de calibragem, com os avisos que vêm junto.
@@ -110,6 +123,16 @@ export function calcularArvoreDeHealth(entrada: EntradaDaHierarquia): ArvoreDeHe
     for (const endpoint of endpoints) {
       if (entrada.bateriasCriticasPorEndpoint?.has(endpoint.id)) baterias += 1;
     }
+    const limite =
+      entrada.janelaDeRecorrenciaMs === undefined
+        ? null
+        : entrada.calculatedAt.getTime() - entrada.janelaDeRecorrenciaMs;
+    const quebras = (entrada.quebrasDeVidro ?? []).filter(
+      (quebra) =>
+        idsDoEscopo.has(quebra.endpointId) &&
+        (limite === null || quebra.abertaEm.getTime() >= limite)
+    );
+
     const backlog = new Map<string, number>();
     for (const [endpointId, valor] of entrada.backlogDeSincronizacaoPorEndpoint ?? []) {
       if (idsDoEscopo.has(endpointId)) backlog.set(endpointId, valor);
@@ -128,6 +151,7 @@ export function calcularArvoreDeHealth(entrada: EntradaDaHierarquia): ArvoreDeHe
         l.endpointId === undefined ? no.paiId === null : idsDoEscopo.has(l.endpointId)
       ),
       conflitosDePolitica: conflitos,
+      quebrasDeVidro: quebras,
       backlogDeEventos: no.nivel === 'ORGANIZATION' ? entrada.backlogDeEventos : 0,
       backlogDeSincronizacaoPorEndpoint: backlog,
       bateriasCriticas: baterias
@@ -145,7 +169,12 @@ export function calcularArvoreDeHealth(entrada: EntradaDaHierarquia): ArvoreDeHe
           calculatedAt: entrada.calculatedAt
         },
         indicadores,
-        evidenciasDoEscopo(endpoints, entrada.conectividade, reconciliacoes),
+        {
+          ...evidenciasDoEscopo(endpoints, entrada.conectividade, reconciliacoes),
+          revisoesDeEmergencia: quebras
+            .filter((quebra) => quebra.encerrada && !quebra.revisada)
+            .map((quebra) => quebra.quebraId)
+        },
         pesos
       )
     );

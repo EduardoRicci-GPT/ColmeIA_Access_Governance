@@ -45,6 +45,7 @@ import {
 } from '../persistencia/repositorios';
 import { MaterialDeRevisao } from '../governanca/aprovacao';
 import { ResumoDoPlantao } from '../governanca/plantao';
+import { JANELA_DE_RECORRENCIA_DIAS } from '../governanca/emergencia';
 import {
   ConflitoDeSegregacao,
   DominioDeSegregacao,
@@ -269,6 +270,14 @@ export class CicloDeGovernanca {
       reconciliacoes: resumoFisico.resultados,
       latencias,
       conflitosPorZona: this.conflitosPorZona(mundo, logica.acoes),
+      // A emergência chega ao score projetada, e a janela de recorrência viaja
+      // junto: sem ela, a contagem de uma zona só cresce e o score dela nunca
+      // volta a subir — o que ensinaria a equipe a ignorar o número em vez de
+      // corrigir a causa.
+      quebrasDeVidro: mundo.historicoDeEmergencias?.projetarParaAssurance(
+        this.deps.relogio.agora()
+      ),
+      janelaDeRecorrenciaMs: JANELA_DE_RECORRENCIA_DIAS * 24 * 60 * 60_000,
       backlogDeEventos: 0
     });
     this.deps.assuranceEngine.encerrarCasosResolvidos(resumoFisico.resultados);

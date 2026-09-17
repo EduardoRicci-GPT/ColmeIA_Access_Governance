@@ -69,14 +69,14 @@ await tick(bancada, 3 * 60_000);
 // minutos, e a revisão nasce aberta.
 bancada.emergencias.invocar({
   id: 'VIDRO-DEMO',
-  personId: 'p-clara',
-  relationshipId: 'vin-clara',
-  endpointId: 'ep-cofre-psico',
-  zonaId: 'z-farmacia',
+  personId: 'p-rui',
+  relationshipId: 'vin-rui',
+  endpointId: 'ep-seg-1',
+  zonaId: 'z-seguranca',
   criticidade: 'CRITICAL',
   natureza: 'PARADA_CARDIORRESPIRATORIA',
   justificativa: 'Parada em curso; psicotrópico do carro de emergência, sem tempo de deliberar.',
-  invocadaPor: 'clara.enfermagem',
+  invocadaPor: 'rui.seguranca',
   em: bancada.relogio.agora()
 });
 await tick(bancada, 60_000);

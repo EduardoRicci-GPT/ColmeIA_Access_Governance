@@ -57,6 +57,11 @@ export interface AccessGovernanceHealth {
   staleCredentials: number;
   anomalousLatencyCount: number;
 
+  /** Quebras de vidro com a janela fechada e a conta em aberto. */
+  pendingBreakGlassReviews: number;
+  /** Repetições além da primeira, por zona, na janela de recorrência. */
+  recurringBreakGlass: number;
+
   calculatedAt: Date;
   components: readonly HealthComponent[];
 }
@@ -80,6 +85,8 @@ export interface PesosDeHealth {
   credencialObsoleta: number;
   bateriaCritica: number;
   desvioDeRelogio: number;
+  revisaoDeEmergenciaPendente: number;
+  emergenciaRecorrente: number;
 }
 
 export const PESOS_PADRAO: Readonly<PesosDeHealth> = Object.freeze({
@@ -94,7 +101,16 @@ export const PESOS_PADRAO: Readonly<PesosDeHealth> = Object.freeze({
   latenciaAnomala: 2,
   credencialObsoleta: 1,
   bateriaCritica: 1,
-  desvioDeRelogio: 2
+  desvioDeRelogio: 2,
+  // Mais leve que a revogação pendente (3), e a razão é de natureza: uma
+  // revogação pendente é porta que ABRE AGORA para quem não devia entrar; uma
+  // revisão de emergência pendente é dívida de prestação de contas sobre uma
+  // porta que já fechou. As duas contam; só uma delas é risco vivo.
+  revisaoDeEmergenciaPendente: 2,
+  // Mais pesado que aquele, e também por natureza: a repetição não é um
+  // incidente, é o sintoma de um modelo de acesso que não serve para o trabalho
+  // daquela zona — e isso não se resolve revisando mais depressa.
+  emergenciaRecorrente: 3
 });
 
 /** Teto por família, para que uma única categoria não zere o score sozinha. */
@@ -110,7 +126,9 @@ export const TETOS_PADRAO = Object.freeze({
   latencia: 10,
   obsoletas: 10,
   baterias: 5,
-  relogio: 10
+  relogio: 10,
+  revisoesDeEmergencia: 20,
+  recorrenciaDeEmergencia: 15
 });
 
 function arredondar(valor: number): number {
@@ -154,6 +172,7 @@ export interface EvidenciasDeHealth {
   naoReconciliados?: readonly string[];
   gatewaysOffline?: readonly string[];
   conflitos?: readonly string[];
+  revisoesDeEmergencia?: readonly string[];
 }
 
 export function calcularHealth(
@@ -285,6 +304,34 @@ export function calcularHealth(
     )
   );
 
+  // A emergência entra no score, e entra com uma linha que o rótulo é obrigado
+  // a sustentar: o que pesa é a CONTA que ficou, nunca o fato de alguém ter
+  // quebrado o vidro. Uma quebra invocada e revisada no mesmo turno não move
+  // este número em nada — se movesse, o score estaria cobrando da equipe
+  // exatamente o comportamento que o produto quer que ela tenha.
+  adicionar(
+    componente(
+      'REVISOES_DE_EMERGENCIA',
+      `${indicadores.revisoesDeEmergenciaPendentes} quebra(s) de vidro sem a revisão obrigatória`,
+      pesos.revisaoDeEmergenciaPendente * indicadores.pesoDeRevisoesDeEmergencia,
+      TETOS_PADRAO.revisoesDeEmergencia,
+      indicadores.revisoesDeEmergenciaPendentes,
+      evidencias.revisoesDeEmergencia ?? []
+    )
+  );
+  adicionar(
+    componente(
+      'EMERGENCIA_RECORRENTE',
+      `${indicadores.repeticoesDeEmergencia} repetição(ões) de quebra de vidro em ` +
+        `${indicadores.zonasComRepeticao.length} zona(s): o caminho normal de acesso não ` +
+        'está dando conta do trabalho que se faz ali',
+      pesos.emergenciaRecorrente * indicadores.repeticoesDeEmergencia,
+      TETOS_PADRAO.recorrenciaDeEmergencia,
+      indicadores.repeticoesDeEmergencia,
+      indicadores.zonasComRepeticao
+    )
+  );
+
   const penalidadeTotal = componentes.reduce((soma, item) => soma + item.penalidade, 0);
   const score = Math.max(0, Math.min(100, arredondar(100 - penalidadeTotal)));
 
@@ -304,6 +351,8 @@ export function calcularHealth(
     highRiskConflicts: indicadores.highRiskConflicts,
     staleCredentials: indicadores.staleCredentials,
     anomalousLatencyCount: indicadores.anomalousLatencyCount,
+    pendingBreakGlassReviews: indicadores.revisoesDeEmergenciaPendentes,
+    recurringBreakGlass: indicadores.repeticoesDeEmergencia,
     calculatedAt: escopo.calculatedAt,
     components: componentes
   };

@@ -146,3 +146,10 @@ foi **declarado ao ser cometido**, na seção "o que esta decisão não resolve"
 em vez de descoberto meses depois — e é assim que se paga uma dívida que ainda
 vai existir: escrevendo-a no lugar em que quem vier depois vai tropeçar nela.
 O ADR-0024 a quitou.
+
+Uma quinta, e esta é a variante mais discreta do padrão: `contagemPorZona()`
+existia desde o primeiro dia da quebra de vidro e nenhum Health Score a lia. Não
+era uma porta sem chamador — era uma LEITURA sem leitor, que compila, tem teste
+e não muda número nenhum. O ADR-0025 a ligou, e a regra ganha a extensão que
+faltava: **um indicador que nenhum score consome é um indicador que não
+existe.**

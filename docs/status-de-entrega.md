@@ -122,9 +122,9 @@ Nenhum destes tocou hardware real. São reproduzidos de forma determinística pe
 
 ## 8. Bateria
 
-`npm run verificar` — **670 verificações, todas passando** neste repositório.
+`npm run verificar` — **696 verificações, todas passando** neste repositório.
 
-São 672 no checkout da Aletheia, e a diferença não é defeito: duas verificações
+São 698 no checkout da Aletheia, e a diferença não é defeito: duas verificações
 da prova diferencial do guardrail estrutural só rodam com o arquivo de origem em
 disco. Fora dali elas viram uma, que **registra não ter sido executada** em vez
 de sumir. O mesmo vale para a deriva do espelho MPE-H, que declara
@@ -134,9 +134,9 @@ de sumir. O mesmo vale para a deriva do espelho MPE-H, que declara
 |---|---|
 | Cenário P1 — divergência física | 37 |
 | Cenário P2 — telemetria de latência | 19 |
-| Cenários hospitalares, exceções, competência, explicação e emergência | 213 |
+| Cenários hospitalares, exceções, competência, explicação e emergência | 227 |
 | Contrato de adaptadores v2 | 57 |
-| Health Score — composição, pesos e hierarquia | 19 |
+| Health Score — composição, pesos e hierarquia | 30 |
 | Projeção de contexto e credenciais | 25 |
 | Simulador v2 e políticas de repetição | 33 |
 | Honestidade de estado | 28 |

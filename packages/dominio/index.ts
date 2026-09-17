@@ -6,3 +6,4 @@ export * from './eventos';
 export * from './telemetria';
 export * from './risco';
 export * from './escalonamento';
+export * from './emergencia';

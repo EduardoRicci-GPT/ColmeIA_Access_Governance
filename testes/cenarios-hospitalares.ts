@@ -13,13 +13,22 @@
 // ---------------------------------------------------------------------------
 
 import { fechar, grupo, igual, verificar } from './runner';
-import { ESCOPOS_DE_DELEGACAO, aprovarCofre, materialDoCofre, montarBancada, tick } from './bancada';
+import {
+  ENDPOINTS,
+  ESCOPOS_DE_DELEGACAO,
+  aprovarCofre,
+  materialDoCofre,
+  montarBancada,
+  tick
+} from './bancada';
 import { PedidoDeExcecao, RegistroDeResponsabilidades } from '../packages/governanca';
 import { explicarAcesso } from '../packages/narrativa/explicacao';
+import { somaDosComponentes } from '../packages/observability-assurance/health';
 import { ordenarHabilitacoes, ordenarResponsabilidades } from '../packages/assurance-ui/painel';
 import {
   ALCADAS_HOSPITALARES,
   CANAL_AUSENTE,
+  JANELA_DE_RECORRENCIA_DIAS,
   PlantaoDeAprovacao,
   avisosDaEmergencia
 } from '../packages/governanca';
@@ -1329,8 +1338,8 @@ async function b5(): Promise<void> {
     id: 'VIDRO-B5',
     personId: 'p-rui',
     relationshipId: 'vin-rui',
-    endpointId: 'ep-cofre-psico',
-    zonaId: 'z-farmacia',
+    endpointId: 'ep-seg-1',
+    zonaId: 'z-seguranca',
     criticidade: 'CRITICAL',
     natureza: 'PARADA_CARDIORRESPIRATORIA',
     justificativa: 'Parada no leito 3; psicotrópico do carro de emergência.',
@@ -1339,6 +1348,14 @@ async function b5(): Promise<void> {
   });
   verificar('a quebra é aceita', 'id' in quebra);
   if (!('id' in quebra)) return;
+  // O registro não conhece a topologia — quem sabe as portas é o host —, então
+  // um endpoint inventado seria aceito aqui e depois sumiria do score sem
+  // reclamar. Esta linha existe para que o cenário não passe afirmando nada.
+  verificar(
+    'e a porta que ela abre existe de verdade nesta instalação',
+    ENDPOINTS.some((e) => e.id === quebra.pedido.endpointId),
+    quebra.pedido.endpointId
+  );
 
   const chamado = await tick(b, 60_000);
   igual('a volta seguinte comunica a emergência', chamado.plantao.emergencias.length, 1);
@@ -1515,6 +1532,142 @@ async function b6(): Promise<void> {
   );
 }
 
+async function b7(): Promise<void> {
+  grupo('B7 · a conta em aberto chega ao score, e a janela a esquece');
+  const b = montarBancada();
+  await tick(b);
+
+  const quebra = b.emergencias.invocar({
+    id: 'VIDRO-B7',
+    personId: 'p-marina',
+    relationshipId: 'vin-marina',
+    endpointId: 'ep-farm-2',
+    zonaId: 'z-farmacia',
+    criticidade: 'HIGH',
+    natureza: 'RISCO_IMINENTE_DE_VIDA',
+    justificativa: 'Reposição urgente de antibiótico para sepse em curso.',
+    invocadaPor: 'marina.farmacia',
+    em: b.relogio.agora()
+  });
+  if (!('id' in quebra)) return;
+
+  // Enquanto a janela corre, não há dívida: é atendimento acontecendo.
+  const emCurso = await tick(b, 60_000);
+  const duranteAJanela = emCurso.assurance.arvore.porEscopo.get('z-farmacia');
+  verificar(
+    'com a janela aberta, a emergência não penaliza nada',
+    (duranteAJanela?.components ?? []).every((c) => c.id !== 'REVISOES_DE_EMERGENCIA'),
+    (duranteAJanela?.components ?? []).map((c) => c.id).join(',')
+  );
+
+  // A janela HIGH é de trinta minutos. Fechada e sem revisão, a conta existe.
+  const comConta = await tick(b, 40 * 60_000);
+  const zona = comConta.assurance.arvore.porEscopo.get('z-farmacia');
+  const componente = zona?.components.find((c) => c.id === 'REVISOES_DE_EMERGENCIA');
+  verificar('fechada a janela sem revisão, o score sente', componente !== undefined);
+  igual('e a evidência é a quebra, pelo id', componente?.evidencias.join(','), quebra.id);
+  // Comparar o score desta volta com o de uma volta anterior não provaria nada:
+  // entre as duas, a materialização resolveu pendências e o número subiu por
+  // motivos que não têm a ver com a emergência. O que prova é a composição —
+  // a penalidade existe, é maior que zero, e o score fecha com ela dentro.
+  verificar(
+    'a conta desconta pontos de verdade',
+    (componente?.penalidade ?? 0) > 0,
+    String(componente?.penalidade)
+  );
+  igual(
+    'e o score da farmácia fecha com ela dentro',
+    100 - somaDosComponentes(zona!),
+    zona!.score
+  );
+  // O pai é recalculado sobre os mesmos fatos, não é média dos filhos: a conta
+  // aparece nos dois níveis, com o mesmo identificador por trás.
+  const hospital = comConta.assurance.arvore.porEscopo.get('hosp-aurora');
+  verificar(
+    'e a conta sobe para o hospital com a mesma evidência',
+    hospital?.components
+      .find((c) => c.id === 'REVISOES_DE_EMERGENCIA')
+      ?.evidencias.includes(quebra.id) === true
+  );
+
+  // Revisar é o que quita. Não é o tempo passando, e não é o painel esquecendo.
+  b.emergencias.revisar(quebra.id, 'sofia.seguranca', 'LEGITIMA', 'Sepse confirmada no prontuário.');
+  const quitada = await tick(b, 60_000);
+  verificar(
+    'revisada, a conta sai do score',
+    (quitada.assurance.arvore.porEscopo.get('z-farmacia')?.components ?? []).every(
+      (c) => c.id !== 'REVISOES_DE_EMERGENCIA'
+    )
+  );
+}
+
+async function b8(): Promise<void> {
+  grupo('B8 · repetição pesa, e a janela de recorrência deixa a zona se recuperar');
+  const b = montarBancada();
+  await tick(b);
+  const base = {
+    personId: 'p-marina',
+    relationshipId: 'vin-marina',
+    endpointId: 'ep-farm-2',
+    zonaId: 'z-farmacia',
+    criticidade: 'HIGH' as const,
+    natureza: 'INTERCORRENCIA_CLINICA_GRAVE' as const,
+    invocadaPor: 'marina.farmacia'
+  };
+
+  const ids: string[] = [];
+  for (let i = 0; i < 3; i += 1) {
+    const q = b.emergencias.invocar({
+      ...base,
+      id: `VIDRO-B8-${i}`,
+      justificativa: `Intercorrência ${i + 1} no plantão da farmácia.`,
+      em: b.relogio.agora()
+    });
+    if ('id' in q) {
+      ids.push(q.id);
+      // Revisadas de imediato: o que se quer medir aqui é a REPETIÇÃO, e não a
+      // dívida de revisão. Se as duas leituras não fossem separadas, este
+      // cenário não conseguiria distingui-las — e é para isso que são duas.
+      b.emergencias.revisar(q.id, 'sofia.seguranca', 'LEGITIMA', 'Plantão conferido.');
+    }
+    await tick(b, 60_000);
+  }
+  igual('três quebras aceitas na mesma zona', ids.length, 3);
+
+  const comRepeticao = await tick(b, 60_000);
+  const zona = comRepeticao.assurance.arvore.porEscopo.get('z-farmacia');
+  const componente = zona?.components.find((c) => c.id === 'EMERGENCIA_RECORRENTE');
+  verificar('a repetição pesa mesmo com tudo revisado', componente !== undefined);
+  igual('duas repetições além da primeira', componente?.contagem, 2);
+  verificar(
+    'e o achado é sobre a zona, não sobre a pessoa',
+    componente?.evidencias.join(',') === 'z-farmacia',
+    componente?.evidencias.join(',') ?? '(vazio)'
+  );
+  verificar(
+    'o rótulo diz que o caminho normal não está dando conta',
+    (componente?.rotulo ?? '').includes('caminho normal de acesso'),
+    componente?.rotulo ?? '(ausente)'
+  );
+
+  // Trinta e um dias depois, a zona que corrigiu a causa volta ao normal. Sem
+  // isto, a contagem só cresceria, o score nunca voltaria a subir, e a equipe
+  // aprenderia a ignorar o número em vez de consertar o que o produz.
+  const depois = await tick(b, (JANELA_DE_RECORRENCIA_DIAS + 1) * 24 * 60 * 60_000);
+  const esquecida = depois.assurance.arvore.porEscopo.get('z-farmacia');
+  verificar(
+    'passada a janela, a repetição deixa de contar',
+    (esquecida?.components ?? []).every((c) => c.id !== 'EMERGENCIA_RECORRENTE'),
+    (esquecida?.components ?? []).map((c) => c.id).join(',')
+  );
+  // O registro, porém, não esquece nada: só o SCORE tem janela.
+  igual(
+    'mas o registro continua guardando as três',
+    b.emergencias.contagemPorZona()['z-farmacia'],
+    3
+  );
+}
+
 await h7();
 await h8();
 await h9();
@@ -1539,4 +1692,6 @@ await b3();
 await b4();
 await b5();
 await b6();
+await b7();
+await b8();
 fechar('Cenários hospitalares, exceções, competência, explicação e emergência');

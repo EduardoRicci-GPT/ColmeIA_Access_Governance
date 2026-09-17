@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import { DiagnosticoDeLatencia } from '../dominio/telemetria';
+import { QuebraDeVidroProjetada } from '../dominio/emergencia';
 import { Endpoint, Gateway, ProviderConnection } from '../dominio/topologia';
 import { PhysicalReconciliationResult } from '../physical-state-reconciliation/tipos';
 
@@ -46,6 +47,32 @@ export interface IndicadoresDeAssurance {
 
   /** Revogações pendentes ponderadas pela criticidade do endpoint. */
   pesoDeRevogacoesPendentes: number;
+
+  /**
+   * Quebras de vidro cuja janela fechou e que ninguém revisou.
+   *
+   * Note o que NÃO está contado aqui: a quebra de vidro em si. Uma emergência
+   * invocada e revisada no mesmo turno custa ZERO ao score, e isso é a decisão
+   * de produto mais importante deste indicador. Penalizar a quebra criaria
+   * pressão para não quebrar — e o que se faz quando não se pode quebrar o
+   * vidro é escorar a porta, emprestar o crachá ou arrombar o armário de
+   * verdade, sem registro nenhum. O que o score cobra é a CONTA que ficou.
+   */
+  revisoesDeEmergenciaPendentes: number;
+  /** As mesmas, ponderadas pela criticidade do endpoint. */
+  pesoDeRevisoesDeEmergencia: number;
+  /**
+   * Repetições de quebra de vidro além da primeira, por zona, na janela.
+   *
+   * Uma zona que precisa da própria exceção com frequência tem um modelo de
+   * acesso que não serve para o trabalho que se faz ali — a escala não fecha,
+   * ou a política pede duas assinaturas onde nunca há duas pessoas. O achado é
+   * sobre o DESENHO da organização, não sobre quem invocou, e o rótulo do
+   * componente é obrigado a dizer isso: o score não acusa ninguém.
+   */
+  repeticoesDeEmergencia: number;
+  /** Zonas do escopo em que houve repetição. É o que a leitura aponta. */
+  zonasComRepeticao: readonly string[];
 }
 
 export interface EntradaDeIndicadores {
@@ -58,6 +85,13 @@ export interface EntradaDeIndicadores {
   reconciliacoes: readonly PhysicalReconciliationResult[];
   latencias: readonly DiagnosticoDeLatencia[];
   conflitosDePolitica: number;
+  /**
+   * As quebras de vidro do escopo, já projetadas e já filtradas pela janela de
+   * recorrência. O recorte de tempo fica com quem tem o relógio do ciclo —
+   * aqui dentro não há `Date.now()`, e é por isso que este módulo é
+   * reproduzível.
+   */
+  quebrasDeVidro?: readonly QuebraDeVidroProjetada[];
   backlogDeEventos?: number;
   backlogDeSincronizacaoPorEndpoint?: ReadonlyMap<string, number>;
   bateriasCriticas?: number;
@@ -113,6 +147,31 @@ export function calcularIndicadores(entrada: EntradaDeIndicadores): IndicadoresD
     if (resultado.natureza === 'DESVIO_DE_RELOGIO') desvios += 1;
   }
 
+  // A emergência entra em duas leituras distintas, e separá-las é o ponto: uma
+  // conta a dívida de prestação de contas, a outra conta a insistência com que
+  // uma zona precisa da própria exceção. Somá-las num número só faria a segunda
+  // desaparecer dentro da primeira assim que alguém revisasse.
+  let revisoesPendentes = 0;
+  let pesoDeRevisoes = 0;
+  const quebrasPorZona = new Map<string, number>();
+  for (const quebra of entrada.quebrasDeVidro ?? []) {
+    // Em curso não é dívida: é atendimento acontecendo.
+    if (quebra.encerrada && !quebra.revisada) {
+      revisoesPendentes += 1;
+      const criticidade = criticidadePorEndpoint.get(quebra.endpointId) ?? 'MEDIUM';
+      pesoDeRevisoes += MULTIPLICADOR_DE_CRITICIDADE[criticidade] ?? 1;
+    }
+    quebrasPorZona.set(quebra.zonaId, (quebrasPorZona.get(quebra.zonaId) ?? 0) + 1);
+  }
+  let repeticoes = 0;
+  const zonasComRepeticao: string[] = [];
+  for (const [zona, quantas] of quebrasPorZona) {
+    if (quantas <= 1) continue;
+    repeticoes += quantas - 1;
+    zonasComRepeticao.push(zona);
+  }
+  zonasComRepeticao.sort();
+
   let backlogDeSync = 0;
   for (const valor of entrada.backlogDeSincronizacaoPorEndpoint?.values() ?? []) backlogDeSync += valor;
 
@@ -141,6 +200,10 @@ export function calcularIndicadores(entrada: EntradaDeIndicadores): IndicadoresD
     backlogDeEventos: entrada.backlogDeEventos ?? 0,
     bateriasCriticas: entrada.bateriasCriticas ?? 0,
     desviosDeRelogio: desvios,
-    pesoDeRevogacoesPendentes: pesoDeRevogacoes
+    pesoDeRevogacoesPendentes: pesoDeRevogacoes,
+    revisoesDeEmergenciaPendentes: revisoesPendentes,
+    pesoDeRevisoesDeEmergencia: pesoDeRevisoes,
+    repeticoesDeEmergencia: repeticoes,
+    zonasComRepeticao
   };
 }
