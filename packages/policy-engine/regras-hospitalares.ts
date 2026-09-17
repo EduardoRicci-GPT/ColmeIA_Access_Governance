@@ -15,6 +15,7 @@ import { DOMINIOS_DE_SEGREGACAO_BASE, regraDeSegregacaoPorAtividade } from './se
 export const PRIORIDADE = Object.freeze({
   BLOQUEIO_ESTRUTURAL: 100,
   RESTRICAO_SANITARIA: 80,
+  COMPETENCIA_EXIGIDA: 75,
   SEGREGACAO_DE_FUNCOES: 70,
   APROVACAO_POR_CRITICIDADE: 60,
   CONCESSAO_POR_PAPEL: 40,
@@ -95,6 +96,53 @@ export function regraDeSegregacao(papelA: string, papelB: string): RegraDePoliti
 }
 
 /**
+ * Habilitação SUSPENSA nega, e a negativa é de outra natureza.
+ *
+ * Suspensão é decisão de uma autoridade externa — conselho de classe, órgão
+ * emissor. Nenhuma alçada desta instalação a relaxa, e por isso esta regra
+ * mora entre os bloqueios estruturais: o que falta ali não é permissão, é
+ * qualificação, e permissão é a única coisa que uma autoridade interna sabe
+ * conceder.
+ *
+ * É também a única falha de competência que fecha porta sozinha.
+ */
+export const REGRA_COMPETENCIA_SUSPENSA: RegraDePolitica = {
+  id: 'R-COMPETENCIA-SUSPENSA',
+  descricao: 'Habilitação exigida suspensa pelo emissor nega o acesso.',
+  prioridade: PRIORIDADE.BLOQUEIO_ESTRUTURAL,
+  efeito: 'DENY',
+  aplicavel: (pedido) => pedido.contexto.competencia?.suspensa === true,
+  justificativa: (pedido) =>
+    pedido.contexto.competencia?.explicacao ?? 'Habilitação suspensa pelo emissor.'
+};
+
+/**
+ * Habilitação vencida ou não declarada exige revisão humana — e não nega.
+ *
+ * A tentação é tratar toda falha de competência como negativa. Seria simples,
+ * e reintroduziria o erro simétrico do ADR-0014: numa madrugada, a anuidade
+ * atrasada de um enfermeiro fecharia a UTI para a única pessoa presente. O
+ * custo do rigor recairia sobre o paciente, não sobre quem esqueceu de
+ * renovar.
+ *
+ * Quem decide se aquele plantão segue é gente com alçada — e, depois do
+ * ADR-0017 e do ADR-0018, essa exigência abre pedido de fato e chama quem pode
+ * resolver, em vez de virar porta que não abre e ninguém sabe por quê.
+ */
+export const REGRA_COMPETENCIA_PENDENTE: RegraDePolitica = {
+  id: 'R-COMPETENCIA-PENDENTE',
+  descricao: 'Habilitação exigida vencida ou não declarada exige revisão humana.',
+  prioridade: PRIORIDADE.COMPETENCIA_EXIGIDA,
+  efeito: 'REQUIRE_APPROVAL',
+  aplicavel: (pedido) =>
+    pedido.contexto.competencia?.exigida === true &&
+    pedido.contexto.competencia.atende === false &&
+    pedido.contexto.competencia.suspensa === false,
+  justificativa: (pedido) =>
+    pedido.contexto.competencia?.explicacao ?? 'Habilitação exigida pendente.'
+};
+
+/**
  * Endpoint CRITICAL exige aprovação humana. Não é desconfiança do solicitante:
  * é registro de que alguém, com nome, respondeu por aquela entrada.
  */
@@ -147,6 +195,8 @@ export const REGRAS_HOSPITALARES_BASE: readonly RegraDePolitica[] = Object.freez
   REGRA_VINCULO_VIGENTE,
   REGRA_ORDEM_DE_SERVICO,
   REGRA_TURNO,
+  REGRA_COMPETENCIA_SUSPENSA,
+  REGRA_COMPETENCIA_PENDENTE,
   REGRA_SEGREGACAO_POR_ATIVIDADE,
   REGRA_APROVACAO_EM_AREA_CRITICA,
   REGRA_CONCESSAO_POR_PAPEL,

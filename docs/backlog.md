@@ -54,7 +54,10 @@
 
 | # | Item | O que muda |
 |---|---|---|
-| 20 | `Competencia` como objeto de primeira classe | hoje o motor trata competência como papel. Um profissional pode ter o cargo e não ter a habilitação vigente — e o motor concederia. É a lacuna que mais distancia o código da formulação "por competência e responsabilidade vigente" |
+| 20 | ~~`Competencia` como objeto de primeira classe~~ — **feito**, ADR-0021 | habilitação com emissor, validade e suspensão. Suspensa nega; vencida e não declarada exigem revisão humana; exigência ausente não é evidência ausente. A designação de responsabilidade passou a conferir em vez de aceitar a palavra de quem pede |
+| 20b | Exigência de competência por ATIVIDADE, não por zona | hoje a farmácia exige NR-32 para qualquer porta dela. O desenho fino liga a exigência à atividade que a pessoa exerce no domínio, casando com a matriz de segregação (ADR-0019) |
+| 20c | Tela de habilitações prestes a vencer | a fila de aprovação já nomeia a competência faltante, mas ninguém vê o prazo antes de ele virar porta fechada — o mesmo defeito que o ADR-0017 corrigiu para a vigência da aprovação |
+| 20d | Integração com conselho de classe | o produto lê habilitação e não renova nada. Hoje o host declara, com data de verificação registrada para que leitura velha não passe por fato atual |
 | 21 | ~~`ResponsabilidadeTemporaria` + `EscopoDeDelegacao` + pedido de exceção~~ — **feito**, ADR-0020 | o supervisor designa responsabilidade dentro da sua autoridade, com motivo e prazo; o motor deriva os acessos e os revoga no vencimento, sem ninguém precisar lembrar de desfazer |
 | 21b | Detecção da exceção sem alguém abrir o pedido | hoje o pedido precisa ser aberto por uma pessoa. Detectar exige passagem observada — câmera e sensor —, e a pesquisa recomendou não atravessar essa fronteira antes de dominar a governança de acesso |
 | 21c | Segunda aprovação para designações sensíveis | o campo existe no desenho do escopo e não foi implementado. Hoje toda designação dentro do escopo vale com uma assinatura |

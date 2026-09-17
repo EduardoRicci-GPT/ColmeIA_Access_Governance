@@ -11,6 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import { CredentialMethod, Criticidade } from '../dominio/topologia';
+import { LeituraDeCompetencia } from '../governanca/competencia';
 import { DecisionOrigin } from '../dominio/eventos';
 
 /**
@@ -42,6 +43,20 @@ export interface AtributosDeContexto {
   ordemDeServicoAberta?: boolean;
   /** Situação de emergência declarada por operador, com registro. */
   contingenciaDeclarada?: boolean;
+  /**
+   * A habilitação da pessoa nesta zona, já PROJETADA.
+   *
+   * Chega como leitura mínima — atende, está suspensa, o que falta — e nunca
+   * como o registro no conselho. O motor decide acesso; número de carteira
+   * profissional é dado pessoal que ele não precisa, pela mesma razão que
+   * diagnóstico não entra (ADR-0007).
+   *
+   * Ausente significa que a instalação não declarou exigência para esta zona.
+   * Isso NÃO é falha de competência: exigência ausente e evidência ausente são
+   * coisas diferentes, e tratá-las igual fecharia toda porta no dia em que a
+   * integração com o conselho ficasse muda.
+   */
+  competencia?: LeituraDeCompetencia;
 }
 
 /**

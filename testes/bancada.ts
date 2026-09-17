@@ -17,14 +17,17 @@ import {
   AutoridadeEmMemoria,
   CanalEmMemoria,
   EscopoDeDelegacao,
+  EXIGENCIAS_HOSPITALARES,
   GateDeAcesso,
   JANELAS_PADRAO,
   MaterialDeRevisao,
   PlantaoDeAprovacao,
+  RegistroDeCompetencias,
   RegistroDeResponsabilidades
 } from '../packages/governanca';
 import { Endpoint, Gateway, NoDeHierarquia, ProviderConnection, Topologia } from '../packages/dominio/topologia';
 import { Person, Relationship, Role } from '../packages/dominio/entitlement';
+import { HabilitacaoDaPessoa } from '../packages/governanca';
 import {
   DOMINIOS_DE_SEGREGACAO_BASE,
   PolicyEngine,
@@ -225,6 +228,36 @@ export const ESCOPOS_DE_DELEGACAO: readonly EscopoDeDelegacao[] = Object.freeze(
   }
 ]);
 
+/**
+ * Habilitações de referência.
+ *
+ * Eduardo tem registro de enfermagem vigente e trabalha na UTI, que o exige.
+ * Marina tem NR-32 e trabalha na farmácia, que o exige. Clara é do
+ * administrativo, cuja zona não declara exigência nenhuma — e por isso ela
+ * atravessa o dia sem que competência se aplique. É o caso mais comum num
+ * hospital, e o que mais erra quem confunde exigência ausente com evidência
+ * ausente.
+ */
+export function HABILITACOES_DA_BANCADA(): HabilitacaoDaPessoa[] {
+  return [
+    {
+      personId: 'p-eduardo',
+      competenciaId: 'registro-de-enfermagem',
+      estado: 'VIGENTE',
+      validaAte: new Date('2027-03-31T00:00:00'),
+      referenciaDoRegistro: 'ref-coren-0001',
+      verificadoEm: new Date('2026-09-01T00:00:00')
+    },
+    {
+      personId: 'p-marina',
+      competenciaId: 'nr-32',
+      estado: 'VIGENTE',
+      validaAte: new Date('2027-06-30T00:00:00'),
+      verificadoEm: new Date('2026-09-01T00:00:00')
+    }
+  ];
+}
+
 export function topologiaInicial(): Topologia {
   return {
     nos: NOS,
@@ -245,6 +278,7 @@ export interface Bancada {
   diario: DiarioNaTrilha;
   plantao: PlantaoDeAprovacao;
   responsabilidades: RegistroDeResponsabilidades;
+  competencias: RegistroDeCompetencias;
   canal: CanalEmMemoria;
   autoridade: AutoridadeEmMemoria;
   registros: RegistrosDeAcessoEmMemoria;
@@ -301,7 +335,22 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
   // Os escopos de delegação da instalação. O supervisor da UTI designa apoio à
   // UTI e nada além dela; a gerência de facilities alcança mais zonas e para
   // antes da faixa crítica. Sem escopo declarado, nenhuma autoridade designa.
-  const responsabilidades = new RegistroDeResponsabilidades(relogio, ESCOPOS_DE_DELEGACAO, diario);
+  // As habilitações vêm do host. Aqui, a bancada declara as de referência — e
+  // declara também a de quem NÃO tem, porque é isso que o cenário testa.
+  const competencias = new RegistroDeCompetencias(
+    relogio,
+    HABILITACOES_DA_BANCADA(),
+    EXIGENCIAS_HOSPITALARES
+  );
+
+  // O registro de responsabilidades CONFERE a habilitação em vez de aceitar a
+  // palavra de quem pede — o laço que o ADR-0020 deixou declarado em aberto.
+  const responsabilidades = new RegistroDeResponsabilidades(
+    relogio,
+    ESCOPOS_DE_DELEGACAO,
+    diario,
+    competencias
+  );
 
   const ciclo = new CicloDeGovernanca({
     relogio,
@@ -333,6 +382,7 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     // As responsabilidades temporárias entram ao lado da lotação, nunca
     // dentro dela: o RH continua dizendo a verdade do RH.
     responsabilidades,
+    competencias,
     // O cofre de psicotrópicos é CRITICAL: a política exige aprovação humana,
     // e o gate exige DUAS pessoas distintas nessa faixa. A aprovação é aberta
     // e decidida em `aprovarCofre()`, contra o material selado.
@@ -350,6 +400,7 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     diario,
     plantao,
     responsabilidades,
+    competencias,
     canal,
     autoridade,
     registros,

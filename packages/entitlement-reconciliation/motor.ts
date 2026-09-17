@@ -35,6 +35,7 @@ import {
   SEM_RESPONSABILIDADES,
   dentroDoTeto
 } from '../governanca/responsabilidade';
+import { ConsultaDeCompetencia, SEM_COMPETENCIAS } from '../governanca/competencia';
 import { AfetadosPelaDecisao } from '../contratos-estruturais/filtro-zero';
 
 export interface MundoLogico {
@@ -85,6 +86,15 @@ export interface MundoLogico {
    * Ausente significa nenhuma responsabilidade temporária. Fecha por omissão.
    */
   responsabilidades?: ConsultaDeResponsabilidades;
+  /**
+   * A habilitação profissional, pela porta do host.
+   *
+   * Quem conversa com o conselho de classe é o sistema de pessoal, e
+   * reimplementar isso aqui produziria uma segunda verdade sobre quem está
+   * habilitado. Ausente significa que nenhuma exigência foi declarada — e
+   * isso não fecha porta nenhuma.
+   */
+  competencias?: ConsultaDeCompetencia;
 }
 
 /**
@@ -197,7 +207,12 @@ export function montarContexto(
     vinculoVigente: vinculoVigente(vinculo, agora),
     turnoVigente: vinculo.escala ? turnoVigente(vinculo.escala, agora) : true,
     ordemDeServicoAberta:
-      vinculo.ordemDeServicoId === undefined ? undefined : vinculoVigente(vinculo, agora)
+      vinculo.ordemDeServicoId === undefined ? undefined : vinculoVigente(vinculo, agora),
+    competencia: (mundo.competencias ?? SEM_COMPETENCIAS).avaliar(
+      vinculo.personId,
+      endpoint.zonaId,
+      agora
+    )
   };
   return contexto;
 }

@@ -32,19 +32,27 @@
 // `EscopoDeDelegacao` existe para que o "não pode" seja verificado, e não
 // apenas combinado.
 //
-// O QUE ESTE MÓDULO NÃO CONSEGUE VERIFICAR, E DECLARA
+// COMPETÊNCIA: DE AFIRMAÇÃO DO HOST A FATO CONFERIDO
 //
-// Competência. Exceção operacional não cria habilitação: quem não pode
-// executar o procedimento continua não podendo, por mais legítima que seja a
-// necessidade. Só que este produto ainda modela PAPEL, não competência — então
-// o pedido carrega o estado da competência que o host afirma, e
-// `NAO_VERIFICADA` atravessa registrada em vez de passar despercebida. Enquanto
-// competência não for objeto próprio (backlog 20), esta é a forma honesta de
-// não fingir uma checagem que não fazemos.
+// Exceção operacional não cria habilitação: quem não pode executar o
+// procedimento continua não podendo, por mais legítima que seja a necessidade.
+//
+// A primeira versão deste módulo aceitava a palavra do host sobre isso, porque
+// competência ainda não existia como objeto. Agora existe (`competencia.ts`), e
+// o registro CONFERE quando tem como — mas com uma assimetria deliberada: a
+// leitura conferida prevalece, exceto sobre um `INSUFICIENTE` afirmado pelo
+// host. Quem opera pode saber de uma suspensão que ainda não chegou ao nosso
+// registro, e relaxar a afirmação de quem está mais perto do fato seria
+// confiar no cadastro contra a pessoa que o alimenta.
+//
+// Suspensão recusa a designação. Vencida e não declarada NÃO recusam: elas
+// deixam a porta pedindo revisão humana, por onde essa decisão já passa desde
+// o ADR-0017. Designar apoio e abrir a porta são dois atos, e é bom que sejam.
 // ---------------------------------------------------------------------------
 
 import { Criticidade } from '../dominio/topologia';
 import { Relogio } from '../dominio/tempo';
+import { ConsultaDeCompetencia } from './competencia';
 
 /** O que a responsabilidade temporária é, no vocabulário da operação. */
 export type TipoDeResponsabilidade =
@@ -81,7 +89,12 @@ export type MotivoDaExcecao =
  * ninguém conferiu, e isso vai para a tela e para a cadeia. A alternativa —
  * assumir válida — transformaria a ausência de checagem em aprovação tácita.
  */
-export type EstadoDaCompetencia = 'VALIDA' | 'INSUFICIENTE' | 'NAO_VERIFICADA';
+export type EstadoDaCompetencia =
+  | 'VALIDA'
+  | 'INSUFICIENTE'
+  /** Conferida, e há falha que exige revisão humana — vencida, não declarada. */
+  | 'PENDENTE'
+  | 'NAO_VERIFICADA';
 
 /**
  * Até onde uma autoridade pode designar.
@@ -258,7 +271,9 @@ export class RegistroDeResponsabilidades implements ConsultaDeResponsabilidades 
   constructor(
     private readonly relogio: Relogio,
     escopos: readonly EscopoDeDelegacao[] = [],
-    private readonly diario?: DiarioDeResponsabilidade
+    private readonly diario?: DiarioDeResponsabilidade,
+    /** Quando presente, a habilitação é conferida em vez de aceita. */
+    private readonly competencias?: ConsultaDeCompetencia
   ) {
     for (const escopo of escopos) this.escopos.set(escopo.id, escopo);
   }
@@ -345,7 +360,8 @@ export class RegistroDeResponsabilidades implements ConsultaDeResponsabilidades 
     }
     // Competência vem ANTES do prazo de propósito: nenhum prazo conserta
     // habilitação ausente, e exceção operacional não cria competência.
-    if (pedido.competencia === 'INSUFICIENTE') {
+    const competencia = this.conferirCompetencia(pedido, agora);
+    if (competencia === 'INSUFICIENTE') {
       return recusar(
         'COMPETENCIA_INSUFICIENTE',
         'A competência exigida não está válida. Necessidade operacional não cria ' +
@@ -386,7 +402,7 @@ export class RegistroDeResponsabilidades implements ConsultaDeResponsabilidades 
       pedidoId: pedido.id,
       motivo: pedido.motivo,
       motivoTexto: pedido.motivoTexto,
-      competenciaNaConcessao: pedido.competencia,
+      competenciaNaConcessao: competencia,
       validaDe: agora,
       validaAte: new Date(agora.getTime() + minutos * 60_000),
       estado: 'ATIVA',
@@ -395,10 +411,13 @@ export class RegistroDeResponsabilidades implements ConsultaDeResponsabilidades 
     this.responsabilidades.set(responsabilidade.id, responsabilidade);
 
     const ressalva =
-      pedido.competencia === 'NAO_VERIFICADA'
+      competencia === 'NAO_VERIFICADA'
         ? ' A competência NÃO foi verificada por este sistema; o registro diz isso ' +
           'em vez de presumir que está válida.'
-        : '';
+        : competencia === 'PENDENTE'
+          ? ' A habilitação exigida na zona está pendente: a designação vale, e a porta ' +
+            'ainda vai pedir revisão humana. Designar apoio e abrir a porta são dois atos.'
+          : '';
     const corte = duracaoReduzida
       ? ` O prazo pedido foi reduzido de ${pedido.duracaoMinutos} para ${minutos} min pelo teto do escopo.`
       : '';
@@ -414,6 +433,24 @@ export class RegistroDeResponsabilidades implements ConsultaDeResponsabilidades 
       em: agora
     });
     return { concedida: true, responsabilidade, duracaoReduzida, explicacao };
+  }
+
+  /**
+   * A habilitação, conferida quando há como.
+   *
+   * A assimetria é deliberada: a leitura conferida prevalece, EXCETO sobre um
+   * `INSUFICIENTE` afirmado por quem pediu. Quem está na operação pode saber de
+   * uma suspensão que ainda não chegou ao nosso registro, e usar o cadastro
+   * para desautorizar a pessoa mais próxima do fato seria confiar na cópia
+   * contra a fonte.
+   */
+  private conferirCompetencia(pedido: PedidoDeExcecao, agora: Date): EstadoDaCompetencia {
+    if (pedido.competencia === 'INSUFICIENTE') return 'INSUFICIENTE';
+    const leitura = this.competencias?.avaliar(pedido.personId, pedido.zonaId, agora);
+    if (!leitura) return pedido.competencia;
+    if (leitura.suspensa) return 'INSUFICIENTE';
+    if (!leitura.exigida || leitura.atende) return 'VALIDA';
+    return 'PENDENTE';
   }
 
   /** Encerramento antes do prazo. O apoio acabou às 16h10, e não às 19h. */

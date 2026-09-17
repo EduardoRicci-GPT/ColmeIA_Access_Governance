@@ -13,8 +13,8 @@
 // ---------------------------------------------------------------------------
 
 import { fechar, grupo, igual, verificar } from './runner';
-import { aprovarCofre, materialDoCofre, montarBancada, tick } from './bancada';
-import { PedidoDeExcecao } from '../packages/governanca';
+import { ESCOPOS_DE_DELEGACAO, aprovarCofre, materialDoCofre, montarBancada, tick } from './bancada';
+import { PedidoDeExcecao, RegistroDeResponsabilidades } from '../packages/governanca';
 import { resumirDivergencias } from '../packages/narrativa/resumo';
 import { montarPainel } from '../packages/assurance-ui/painel';
 import { renderizarPainel } from '../packages/assurance-ui/render';
@@ -439,7 +439,7 @@ function pedido(parcial: Partial<PedidoDeExcecao> = {}): PedidoDeExcecao {
     personId: 'p-clara',
     relationshipId: 'vin-clara',
     facilityId: 'hosp-aurora',
-    zonaId: 'z-uti',
+    zonaId: 'z-datacenter',
     tipo: 'COBERTURA_TEMPORARIA',
     motivo: 'DEFICIT_DE_EQUIPE',
     duracaoMinutos: 120,
@@ -460,18 +460,18 @@ async function e1(): Promise<void> {
   await tick(b);
   await tick(b, 3_000);
 
-  const credencial = 'CRED-vin-clara-ep-uti-1';
-  igual('antes, nenhum direito na UTI', b.registros.obter(credencial), undefined);
+  const credencial = 'CRED-vin-clara-ep-dc-1';
+  igual('antes, nenhum direito no datacenter', b.registros.obter(credencial), undefined);
 
   const resultado = b.responsabilidades.conceder(
     b.responsabilidades.abrir(pedido()),
-    'escopo-supervisao-uti'
+    'escopo-facilities'
   );
   verificar('a designação é concedida', resultado.concedida, JSON.stringify(resultado));
   if (!resultado.concedida) return;
   verificar(
     'e a explicação nomeia quem designou, por quê e até quando',
-    resultado.explicacao.includes('sofia.seguranca') &&
+    resultado.explicacao.includes('paulo.diretoria') &&
       resultado.explicacao.includes('DEFICIT_DE_EQUIPE'),
     resultado.explicacao
   );
@@ -480,7 +480,7 @@ async function e1(): Promise<void> {
   verificar(
     'o ciclo seguinte já concede o direito derivado',
     comApoio.acoesLogicas.some(
-      (acao) => acao.material.relationshipId === 'vin-clara' && acao.material.zonaId === 'z-uti'
+      (acao) => acao.material.relationshipId === 'vin-clara' && acao.material.zonaId === 'z-datacenter'
     )
   );
   await tick(b, 3_000);
@@ -522,7 +522,7 @@ async function e2(): Promise<void> {
   await tick(b);
 
   const foraDaZona = b.responsabilidades.conceder(
-    pedido({ id: 'EXC-0002', zonaId: 'z-datacenter', tipo: 'APOIO_TECNICO' }),
+    pedido({ id: 'EXC-0002', tipo: 'APOIO_TECNICO' }),
     'escopo-supervisao-uti'
   );
   verificar('a supervisão da UTI não designa no datacenter', !foraDaZona.concedida);
@@ -548,12 +548,15 @@ async function e2(): Promise<void> {
   }
 
   const tipoErrado = b.responsabilidades.conceder(
-    pedido({ id: 'EXC-0004', tipo: 'DESIGNACAO_DE_SUPERVISAO' }),
+    pedido({ id: 'EXC-0004', zonaId: 'z-uti', tipo: 'DESIGNACAO_DE_SUPERVISAO' }),
     'escopo-supervisao-uti'
   );
   verificar('nem todo tipo de responsabilidade é designável por qualquer um', !tipoErrado.concedida);
 
-  const semEscopo = b.responsabilidades.conceder(pedido({ id: 'EXC-0005' }), 'escopo-inexistente');
+  const semEscopo = b.responsabilidades.conceder(
+    pedido({ id: 'EXC-0005', zonaId: 'z-uti' }),
+    'escopo-inexistente'
+  );
   verificar('sem escopo declarado, não há o que conferir', !semEscopo.concedida);
   if (!semEscopo.concedida) igual('e é recusa', semEscopo.recusa, 'ESCOPO_INEXISTENTE');
 }
@@ -564,7 +567,7 @@ async function e3(): Promise<void> {
   await tick(b);
 
   const semCompetencia = b.responsabilidades.conceder(
-    pedido({ id: 'EXC-0006', competencia: 'INSUFICIENTE' }),
+    pedido({ id: 'EXC-0006', zonaId: 'z-uti', competencia: 'INSUFICIENTE' }),
     'escopo-supervisao-uti'
   );
   verificar('competência insuficiente recusa', !semCompetencia.concedida);
@@ -576,34 +579,56 @@ async function e3(): Promise<void> {
     );
   }
 
-  // O caso honesto: este produto ainda modela papel, não competência. Quando o
-  // host não verifica, o registro diz que não verificou, em vez de presumir.
-  const naoVerificada = b.responsabilidades.conceder(
-    pedido({ id: 'EXC-0007', competencia: 'NAO_VERIFICADA' }),
+  // Quando o sistema CONSEGUE conferir, a afirmação de quem pede não prevalece.
+  // Aqui o pedido diz "não verificada" e a conferência encontra a exigência da
+  // zona pendente — o registro guarda o que foi apurado, não o que foi dito.
+  const afirmadaSemChecagem = b.responsabilidades.conceder(
+    pedido({ id: 'EXC-0007', zonaId: 'z-uti', competencia: 'NAO_VERIFICADA' }),
     'escopo-supervisao-uti'
   );
-  verificar('competência não verificada não bloqueia', naoVerificada.concedida);
-  if (naoVerificada.concedida) {
-    verificar(
-      'mas a ausência da checagem fica dita, e não presumida',
-      naoVerificada.explicacao.includes('NÃO foi verificada'),
-      naoVerificada.explicacao
-    );
+  verificar('a designação segue: pendência não é suspensão', afirmadaSemChecagem.concedida);
+  if (afirmadaSemChecagem.concedida) {
     igual(
-      'e viaja no registro',
-      naoVerificada.responsabilidade.competenciaNaConcessao,
+      'e o registro guarda o que foi CONFERIDO, não o que foi afirmado',
+      afirmadaSemChecagem.responsabilidade.competenciaNaConcessao,
+      'PENDENTE'
+    );
+    verificar(
+      'dizendo que designar apoio e abrir a porta são dois atos',
+      afirmadaSemChecagem.explicacao.includes('dois atos'),
+      afirmadaSemChecagem.explicacao
+    );
+  }
+
+  // E quando NÃO há como conferir, a afirmação atravessa registrada como tal —
+  // em vez de virar aprovação tácita por distração.
+  const semConferencia = new RegistroDeResponsabilidades(b.relogio, ESCOPOS_DE_DELEGACAO);
+  const semFonte = semConferencia.conceder(
+    pedido({ id: 'EXC-0012', zonaId: 'z-uti', competencia: 'NAO_VERIFICADA' }),
+    'escopo-supervisao-uti'
+  );
+  verificar('sem fonte de competência, a designação também segue', semFonte.concedida);
+  if (semFonte.concedida) {
+    igual(
+      'mas a ausência da checagem fica dita',
+      semFonte.responsabilidade.competenciaNaConcessao,
       'NAO_VERIFICADA'
+    );
+    verificar(
+      'e não presumida como válida',
+      semFonte.explicacao.includes('NÃO foi verificada'),
+      semFonte.explicacao
     );
   }
 
   const semTexto = b.responsabilidades.conceder(
-    pedido({ id: 'EXC-0008', motivo: 'OUTRO' }),
+    pedido({ id: 'EXC-0008', zonaId: 'z-uti', motivo: 'OUTRO' }),
     'escopo-supervisao-uti'
   );
   verificar('motivo OUTRO sem descrição não passa', !semTexto.concedida);
 
   const semPrazo = b.responsabilidades.conceder(
-    pedido({ id: 'EXC-0009', duracaoMinutos: 0 }),
+    pedido({ id: 'EXC-0009', zonaId: 'z-uti', duracaoMinutos: 0 }),
     'escopo-supervisao-uti'
   );
   verificar('responsabilidade sem prazo não é temporária', !semPrazo.concedida);
@@ -633,7 +658,7 @@ async function e4(): Promise<void> {
   await tick(b2, 3_000);
   const ativo = b2.responsabilidades.conceder(
     b2.responsabilidades.abrir(pedido({ id: 'EXC-0011' })),
-    'escopo-supervisao-uti'
+    'escopo-facilities'
   );
   if (!ativo.concedida) {
     verificar('a designação deveria ter sido concedida', false);
@@ -641,7 +666,7 @@ async function e4(): Promise<void> {
   }
   await tick(b2, 60_000);
   await tick(b2, 3_000);
-  const credencial = 'CRED-vin-clara-ep-uti-1';
+  const credencial = 'CRED-vin-clara-ep-dc-1';
   igual(
     'o apoio está com acesso confirmado',
     b2.registros.obter(credencial)?.estado.lastConfirmedState,
@@ -664,6 +689,149 @@ async function e4(): Promise<void> {
   );
 }
 
+
+async function c1(): Promise<void> {
+  grupo('C1 · o conselho suspende, e a porta fecha — sem alçada que reabra');
+  const b = montarBancada();
+  await tick(b);
+  await tick(b, 3_000);
+  const credencial = 'CRED-vin-eduardo-ep-uti-1';
+  igual(
+    'o enfermeiro com registro vigente tem acesso à UTI',
+    b.registros.obter(credencial)?.estado.lastConfirmedState,
+    'DEVICE_GRANT_CONFIRMED'
+  );
+
+  // Suspensão é ato do emissor. O hospital não a decide, e também não a desfaz.
+  b.competencias.suspender('p-eduardo', 'registro-de-enfermagem');
+  const apos = await tick(b, 60_000);
+  const acao = apos.acoesLogicas.find(
+    (a) => a.material.relationshipId === 'vin-eduardo' && a.material.zonaId === 'z-uti'
+  );
+  igual('o direito é revogado', acao?.tipo, 'REVOKE');
+  verificar(
+    'e a razão diz que o que falta é qualificação, não permissão',
+    (acao?.decisao.razao ?? '').includes('não é permissão'),
+    acao?.decisao.razao ?? '(sem ação)'
+  );
+  verificar(
+    'NÃO vira pendência de aprovação: não há a quem recorrer',
+    !apos.pendentesDeAprovacao.some((p) => p.material.relationshipId === 'vin-eduardo')
+  );
+  await tick(b, 3_000);
+  igual(
+    'e o equipamento confirma a revogação',
+    b.registros.obter(credencial)?.estado.lastConfirmedState,
+    'DEVICE_REVOCATION_CONFIRMED'
+  );
+}
+
+async function c2(): Promise<void> {
+  grupo('C2 · habilitação vencida exige revisão humana, e não fecha sozinha');
+  // Fechar por anuidade atrasada faria o custo do rigor recair sobre quem
+  // precisa de atendimento, e não sobre quem esqueceu de renovar. É o erro
+  // simétrico do ADR-0014, e a direção do efeito aqui é deliberada.
+  const b = montarBancada();
+  b.competencias.declarar({
+    personId: 'p-eduardo',
+    competenciaId: 'registro-de-enfermagem',
+    estado: 'VIGENTE',
+    validaAte: new Date('2026-09-11T09:00:00'),
+    verificadoEm: new Date('2026-09-01T00:00:00')
+  });
+  await tick(b);
+  await tick(b, 3_000);
+
+  const vencido = await tick(b, 2 * 60 * 60_000);
+  const pendente = vencido.pendentesDeAprovacao.find(
+    (p) => p.material.relationshipId === 'vin-eduardo' && p.material.zonaId === 'z-uti'
+  );
+  verificar('vira pendência de revisão humana', pendente !== undefined);
+  verificar(
+    'com a data do vencimento na razão',
+    (pendente?.material.razaoDaPolitica ?? '').includes('venceu em'),
+    pendente?.material.razaoDaPolitica ?? '(sem pendência)'
+  );
+  verificar(
+    'e o direito é MANTIDO enquanto uma pessoa decide',
+    !vencido.acoesLogicas.some(
+      (a) => a.material.relationshipId === 'vin-eduardo' && a.tipo === 'REVOKE'
+    )
+  );
+  verificar(
+    'o ciclo abriu o pedido e chamou quem tem alçada',
+    vencido.plantao.avisos.some((ato) => ato.aviso.pendencia.relationshipId === 'vin-eduardo')
+  );
+}
+
+async function c3(): Promise<void> {
+  grupo('C3 · exigência ausente não é evidência ausente');
+  const b = montarBancada();
+  await tick(b);
+  await tick(b, 3_000);
+  // Clara não tem habilitação nenhuma declarada, e o administrativo não exige
+  // nenhuma. Tratar exigência ausente como falha fecharia toda porta no dia em
+  // que a integração com o conselho ficasse muda.
+  igual(
+    'quem trabalha em zona sem exigência não é afetado',
+    b.registros.obter('CRED-vin-clara-ep-adm-1')?.estado.lastConfirmedState,
+    'DEVICE_GRANT_CONFIRMED'
+  );
+  const leitura = b.competencias.avaliar('p-clara', 'z-admin', b.relogio.agora());
+  verificar('a leitura diz que não há exigência', !leitura.exigida);
+  verificar('e por isso ela atende', leitura.atende);
+
+  const naUti = b.competencias.avaliar('p-clara', 'z-uti', b.relogio.agora());
+  verificar('a mesma pessoa, numa zona que exige, não atende', naUti.exigida && !naUti.atende);
+  igual('por não ter a habilitação declarada', naUti.faltantes[0]?.falha, 'NAO_DECLARADA');
+  verificar('e isso não é suspensão', !naUti.suspensa);
+}
+
+async function c4(): Promise<void> {
+  grupo('C4 · designar responsabilidade não cria competência');
+  // A composição das duas metades da formulação que a pesquisa alcançou:
+  // "por competência e responsabilidade vigente". O supervisor pode designar
+  // apoio; ele não pode designar habilitação.
+  const b = montarBancada();
+  await tick(b);
+  await tick(b, 3_000);
+
+  const designada = b.responsabilidades.conceder(
+    b.responsabilidades.abrir(
+      pedido({
+        id: 'EXC-0020',
+        personId: 'p-marina',
+        relationshipId: 'vin-marina',
+        zonaId: 'z-uti',
+        tipo: 'APOIO_ASSISTENCIAL',
+        motivo: 'INTERCORRENCIA_CLINICA'
+      })
+    ),
+    'escopo-supervisao-uti'
+  );
+  verificar('a designação é legítima e é concedida', designada.concedida);
+
+  const apos = await tick(b, 60_000);
+  const pendente = apos.pendentesDeAprovacao.find(
+    (p) => p.material.relationshipId === 'vin-marina' && p.material.zonaId === 'z-uti'
+  );
+  verificar('mas a porta da UTI não abre sozinha', pendente !== undefined);
+  verificar(
+    'porque a habilitação exigida não foi declarada para ela',
+    (pendente?.material.razaoDaPolitica ?? '').includes('registro-de-enfermagem'),
+    pendente?.material.razaoDaPolitica ?? '(sem pendência)'
+  );
+  verificar(
+    'e ninguém foi barrado em silêncio: o chamado saiu',
+    apos.plantao.avisos.some((ato) => ato.aviso.pendencia.relationshipId === 'vin-marina')
+  );
+  igual(
+    'o acesso permanece inexistente até que gente decida',
+    b.registros.obter('CRED-vin-marina-ep-uti-1'),
+    undefined
+  );
+}
+
 await h7();
 await h8();
 await h9();
@@ -673,4 +841,8 @@ await e1();
 await e2();
 await e3();
 await e4();
-fechar('Cenários hospitalares H7–H11 e exceções operacionais E1–E4');
+await c1();
+await c2();
+await c3();
+await c4();
+fechar('Cenários hospitalares, exceções operacionais e competência');
