@@ -23,7 +23,11 @@ import {
 } from '../packages/governanca';
 import { Endpoint, Gateway, NoDeHierarquia, ProviderConnection, Topologia } from '../packages/dominio/topologia';
 import { Person, Relationship, Role } from '../packages/dominio/entitlement';
-import { PolicyEngine, REGRAS_HOSPITALARES_BASE } from '../packages/policy-engine';
+import {
+  DOMINIOS_DE_SEGREGACAO_BASE,
+  PolicyEngine,
+  REGRAS_HOSPITALARES_BASE
+} from '../packages/policy-engine';
 import { EntitlementReconciliationEngine, MundoLogico } from '../packages/entitlement-reconciliation';
 import { PhysicalStateReconciliationEngine } from '../packages/physical-state-reconciliation';
 import { ObservabilityAssuranceEngine } from '../packages/observability-assurance';
@@ -272,7 +276,10 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     // humano, por `aprovarCofre()`.
     aberturaDeAprovacao: gate,
     plantao,
-    diarioDeAprovacao: diario
+    diarioDeAprovacao: diario,
+    // A MESMA lista que montou as regras. Passar outra criaria duas verdades
+    // sobre o que é incompatível, e a tela discordaria da porta.
+    dominiosDeSegregacao: DOMINIOS_DE_SEGREGACAO_BASE
   });
 
   const mundo: MundoLogico = {

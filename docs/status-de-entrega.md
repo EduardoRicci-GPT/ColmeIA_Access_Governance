@@ -122,13 +122,13 @@ Nenhum destes tocou hardware real. São reproduzidos de forma determinística pe
 
 ## 8. Bateria
 
-`npm run acesso:verificar` — **500 verificações, todas passando**.
+`npm run acesso:verificar` — **524 verificações, todas passando**.
 
 | Suíte | Verificações |
 |---|---|
 | Cenário P1 — divergência física | 37 |
 | Cenário P2 — telemetria de latência | 19 |
-| Cenários hospitalares H7–H10 | 41 |
+| Cenários hospitalares H7–H11 | 65 |
 | Contrato de adaptadores v2 | 57 |
 | Health Score — composição, pesos e hierarquia | 19 |
 | Projeção de contexto e credenciais | 25 |

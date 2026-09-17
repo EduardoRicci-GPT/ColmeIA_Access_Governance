@@ -45,6 +45,11 @@ import {
 } from '../persistencia/repositorios';
 import { MaterialDeRevisao } from '../governanca/aprovacao';
 import { ResumoDoPlantao } from '../governanca/plantao';
+import {
+  ConflitoDeSegregacao,
+  DominioDeSegregacao,
+  conflitosDoVinculo
+} from '../policy-engine/segregacao';
 import { chaveDeIdempotencia, correlacaoDeCredencial } from './idempotencia';
 import {
   AvaliacaoDoFreioDeAcesso,
@@ -97,6 +102,27 @@ export interface DependenciasDoCiclo {
    * um fim de volta bem definido.
    */
   diarioDeAprovacao?: DiarioDrenavel;
+  /**
+   * As matrizes de segregação desta instalação.
+   *
+   * Explícita, sem padrão embutido, e de propósito: o motor de política já
+   * recebe as suas regras por construtor, e um padrão aqui criaria uma segunda
+   * lista de domínios convivendo com a primeira. Duas verdades sobre o que é
+   * incompatível seria pior do que nenhuma — quem monta o sistema passa a mesma
+   * lista aos dois lugares.
+   *
+   * Quando ausente, o ciclo não calcula conflito NENHUM, e o relatório diz
+   * isso em vez de devolver lista vazia: vazio e desligado se parecem na tela,
+   * e só um deles é notícia boa.
+   */
+  dominiosDeSegregacao?: readonly DominioDeSegregacao[];
+}
+
+/** Conflito de segregação junto do vínculo em que ele mora. */
+export interface ConflitoDeSegregacaoNoVinculo {
+  relationshipId: string;
+  personId: string;
+  conflito: ConflitoDeSegregacao;
 }
 
 export interface AberturaDePedidoDeAprovacao {
@@ -136,6 +162,18 @@ export interface RelatorioDoCiclo {
   pendentesDeAprovacao: readonly AcaoDeEntitlement[];
   /** Quem foi chamado neste ciclo — e quem não pôde ser. */
   plantao: ResumoDoPlantao;
+  /**
+   * Acúmulos de atividade incompatível, com porta ou sem porta.
+   *
+   * A política já barra o acúmulo na entrada da zona do domínio. Esta lista
+   * responde outra pergunta, que nenhuma porta responde: quem acumula função
+   * incompatível NESTA organização, exista ou não endpoint envolvido. Um
+   * acúmulo que só aparece quando alguém tenta entrar é um acúmulo que a
+   * coordenação descobre pela ordem errada.
+   */
+  conflitosDeSegregacao: readonly ConflitoDeSegregacaoNoVinculo[];
+  /** A leitura de segregação está ligada neste ciclo? */
+  segregacaoAvaliada: boolean;
   /** Atos da aprovação humana que entraram na cadeia neste ciclo. */
   atosDeAprovacaoRegistrados: number;
   /**
@@ -193,6 +231,9 @@ export class CicloDeGovernanca {
         await this.deps.aberturaDeAprovacao.abrir(pendente.material, 'ciclo-de-governanca');
       }
     }
+
+    // 1.75b. O acúmulo é apurado por vínculo, independentemente de porta.
+    const conflitosDeSegregacao = this.apurarSegregacao(mundo);
 
     // 1.8. E quem pode decidir é chamado.
     //
@@ -255,6 +296,8 @@ export class CicloDeGovernanca {
       acoesLogicas: logica.acoes,
       pendentesDeAprovacao: logica.pendentesDeAprovacao,
       plantao,
+      conflitosDeSegregacao,
+      segregacaoAvaliada: this.deps.dominiosDeSegregacao !== undefined,
       atosDeAprovacaoRegistrados,
       freio,
       ordensEnviadas: materializacao.enviadas,
@@ -266,6 +309,29 @@ export class CicloDeGovernanca {
       eventosDoCiclo: assinados.map(({ evento }) => evento),
       integridadeDaTrilha: await this.deps.trilha.verificarIntegridade()
     };
+  }
+
+  /**
+   * Percorre os vínculos vigentes e apura os conflitos de cada um.
+   *
+   * Vínculo encerrado fica fora: quem não tem vínculo não tem função a
+   * segregar, e listá-lo encheria a tela de acúmulos de gente que já foi
+   * embora — ruído que ensina a ignorar a seção inteira.
+   */
+  private apurarSegregacao(mundo: MundoLogico): readonly ConflitoDeSegregacaoNoVinculo[] {
+    const dominios = this.deps.dominiosDeSegregacao;
+    if (!dominios) return [];
+    const papeisPorId = new Map(mundo.papeis.map((papel) => [papel.id, papel]));
+    const achados: ConflitoDeSegregacaoNoVinculo[] = [];
+
+    for (const vinculo of mundo.vinculos) {
+      if (vinculo.situacao !== 'ACTIVE') continue;
+      const papeis = vinculo.roleIds.filter((id) => papeisPorId.has(id));
+      for (const conflito of conflitosDoVinculo(papeis, dominios)) {
+        achados.push({ relationshipId: vinculo.id, personId: vinculo.personId, conflito });
+      }
+    }
+    return achados;
   }
 
   // --- 2. Materialização ----------------------------------------------------

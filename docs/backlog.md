@@ -33,7 +33,9 @@
 |---|---|---|
 | 11 | Modo online do Control iD ponta a ponta | prova o fluxo do item 16 contra equipamento real, com `decisionOrigin` registrado |
 | 12 | Pesquisa Seam (cobertura BR, custo, latência, granularidade) | decide se a hipótese do agregador se sustenta; a pergunta 1 sozinha pode encerrá-la |
-| 13 | Segregação de funções como política de primeira classe | hoje existe como fábrica de regra (`regraDeSegregacao`); falta modelagem no papel e tela |
+| 13 | ~~Segregação de funções como política de primeira classe~~ — **feito**, ADR-0019 | a incompatibilidade passou a ser entre ATIVIDADES (autorizar, executar, custodiar, conferir) num domínio com zonas, entrou no conjunto base de regras, exige revisão humana em vez de negar, e o acúmulo aparece na tela mesmo sem porta envolvida |
+| 13b | Tela de configuração das matrizes de segregação | editar domínio, zona ou par exige mexer no código. Política de primeira classe deveria ser versionada com autor e data, junto do item 8 |
+| 13c | Ratificação das matrizes por instalação | a de medicamentos deriva da Portaria SVS/MS 344/1998 sem estar nela; a de credenciais é palpite fundamentado. Enquanto não forem ratificadas, o efeito das duas é só exigir revisão |
 | 14 | Anti-passback e ocupação máxima | capacidades já previstas em `CapacidadeDeEndpoint`, sem motor correspondente |
 | 15 | Camada de IA sobre o assurance | resumo por público, agrupamento e priorização — sempre sobre dados determinísticos e sempre atrás da guarda de honestidade |
 | 16 | Notificação e plantão para o assurance | o ADR-0018 resolveu o chamado da APROVAÇÃO; divergência física, endpoint offline e caso de escalonamento continuam sem canal — e a porta `CanalDeAviso` já existe para ser reaproveitada |

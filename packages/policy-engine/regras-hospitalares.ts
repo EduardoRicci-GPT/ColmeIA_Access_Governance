@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import { PedidoDeDecisao, RegraDePolitica } from './tipos';
+import { DOMINIOS_DE_SEGREGACAO_BASE, regraDeSegregacaoPorAtividade } from './segregacao';
 
 export const PRIORIDADE = Object.freeze({
   BLOQUEIO_ESTRUTURAL: 100,
@@ -72,7 +73,15 @@ export function regraDeRestricaoSanitaria(
   };
 }
 
-/** Segregação de funções: dois papéis que não podem coexistir numa entrada. */
+/**
+ * Segregação por PAR DE PAPÉIS — o instrumento rombudo, mantido de propósito.
+ *
+ * Nega, e negar raramente é o que um hospital quer (ver `segregacao.ts`: o
+ * problema está no acúmulo, não na porta). Continua existindo para a
+ * instalação que precise cravar uma incompatibilidade nominal específica —
+ * duas funções que, por decisão da direção, não se acumulam em hipótese
+ * alguma. Fora desse caso, o certo é a matriz por atividade.
+ */
 export function regraDeSegregacao(papelA: string, papelB: string): RegraDePolitica {
   return {
     id: `R-SEGREGACAO-${papelA}-${papelB}`,
@@ -121,10 +130,24 @@ export const REGRA_CONCESSAO_POR_LOTACAO: RegraDePolitica = {
   justificativa: (pedido: PedidoDeDecisao) => `Vínculo lotado na unidade ${pedido.contexto.zonaId}.`
 };
 
+/**
+ * A segregação por atividade entra no conjunto base.
+ *
+ * Fora dele, ela seria uma capacidade que cada instalação lembraria de ligar —
+ * e a que esquecesse ficaria descoberta com a mesma aparência de quem não tem
+ * conflito nenhum. É o mesmo erro que deixou o pedido de aprovação sem quem o
+ * abrisse (ADR-0017): a porta existia, e o caminho real não passava por ela.
+ */
+export const REGRA_SEGREGACAO_POR_ATIVIDADE: RegraDePolitica = regraDeSegregacaoPorAtividade(
+  DOMINIOS_DE_SEGREGACAO_BASE,
+  PRIORIDADE.SEGREGACAO_DE_FUNCOES
+);
+
 export const REGRAS_HOSPITALARES_BASE: readonly RegraDePolitica[] = Object.freeze([
   REGRA_VINCULO_VIGENTE,
   REGRA_ORDEM_DE_SERVICO,
   REGRA_TURNO,
+  REGRA_SEGREGACAO_POR_ATIVIDADE,
   REGRA_APROVACAO_EM_AREA_CRITICA,
   REGRA_CONCESSAO_POR_PAPEL,
   REGRA_CONCESSAO_POR_LOTACAO

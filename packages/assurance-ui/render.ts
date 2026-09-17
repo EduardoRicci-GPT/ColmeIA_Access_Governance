@@ -25,6 +25,7 @@ import { EscalationCase } from '../dominio/escalonamento';
 import { CartaoDeEscopo, ItemDaFila, PainelDeAssurance } from './painel';
 import { EstadoDaPendencia, PendenciaDeAprovacao } from '../governanca/aprovacao';
 import { AvisoNaTela } from '../governanca/plantao';
+import { LinhaDeSegregacao } from './painel';
 import { LinhaDoTempo } from './timeline';
 
 function escapar(texto: string): string {
@@ -170,6 +171,10 @@ h2{font-size:13px; letter-spacing:.12em; text-transform:uppercase; font-weight:6
 .chamado{margin:8px 0 0; font-size:12.5px; color:var(--ink-muted)}
 .chamado[data-entregue="nao"]{color:var(--critico); font-weight:600}
 .chamado[data-entregue="nao-houve"]{font-style:italic}
+.segregacao{background:var(--surface); border:1px solid var(--line); border-left:4px solid var(--atencao); padding:14px 16px}
+.segregacao[data-origem="PAPEL_MAL_DESENHADO"]{border-left-color:var(--critico)}
+.segregacao h3{margin:0 0 6px; font-size:15.5px; font-weight:600}
+.segregacao .fonte{margin:8px 0 0; font-size:12px; color:var(--ink-muted)}
 .aprovacao header{display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; justify-content:space-between}
 .aprovacao h3{margin:0; font-size:15.5px; font-weight:600}
 .selo.est-VENCIDA{background:var(--critico-soft); color:var(--critico)}
@@ -287,6 +292,28 @@ function chamadoHtml(chamado: AvisoNaTela | undefined): string {
   return `<p class="chamado" data-entregue="${chamado.entregue ? 'sim' : 'nao'}">${escapar(chamado.texto)}</p>`;
 }
 
+const ROTULO_DA_ORIGEM: Record<LinhaDeSegregacao['origem'], string> = {
+  ACUMULO_DE_PAPEIS: 'acúmulo de papéis — resolve-se na escala',
+  PAPEL_MAL_DESENHADO: 'cadastro do papel — redistribuir escala não resolve'
+};
+
+function segregacaoHtml(linha: LinhaDeSegregacao): string {
+  // A procedência sai junto, sempre. Uma incompatibilidade sem origem declarada
+  // é uma regra que ninguém pode contestar por não saber a quem perguntar — o
+  // mesmo motivo pelo qual peso de score não aparece sem estatuto.
+  return `
+    <article class="segregacao" data-origem="${linha.origem}">
+      <h3>${escapar(linha.personId)} · ${escapar(linha.rotulo)}</h3>
+      <div class="selos">
+        <span class="selo acao mono">${escapar(linha.atividades)}</span>
+        <span class="selo risco-${linha.origem === 'PAPEL_MAL_DESENHADO' ? 'CRITICAL' : 'HIGH'}">${ROTULO_DA_ORIGEM[linha.origem]}</span>
+        <span class="selo mono" style="font-size:12px">${escapar(linha.papeis.join(' + '))}</span>
+      </div>
+      <p class="porque">${escapar(linha.explicacao)}</p>
+      <p class="fonte">Procedência: ${escapar(linha.procedencia)}</p>
+    </article>`;
+}
+
 function ocorrenciaHtml(item: ItemDaFila): string {
   return `
     <article class="ocorrencia" data-risco="${item.risco}">
@@ -399,6 +426,11 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
       ? '<p class="vazio">Nenhuma divergência aberta neste ciclo. Todos os estados desejados têm confirmação física correspondente.</p>'
       : painel.filaDeRisco.map(ocorrenciaHtml).join('');
 
+  const segregacao =
+    painel.segregacao.length === 0
+      ? '<p class="vazio">Nenhum acúmulo de atividade incompatível entre os vínculos vigentes.</p>'
+      : painel.segregacao.map(segregacaoHtml).join('');
+
   const chamadoPorPedido = new Map(painel.linhasDoPlantao.map((linha) => [linha.pedidoId, linha]));
 
   const aprovacoes =
@@ -490,6 +522,17 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
         : `<p class="ressalva-linha"><strong>Ressalva de vigência.</strong> ${escapar(painel.avisoDeVigencia)}</p>`
     }
     <div class="fila">${aprovacoes}</div>
+
+    <h2>Segregação de funções</h2>
+    <p class="subtitulo">Quem acumula autorizar, executar, custodiar e conferir no mesmo domínio — exista
+    porta envolvida ou não. O acúmulo não fecha porta: exige revisão humana, porque numa unidade pequena
+    ele costuma ser a escala possível, e não irregularidade.</p>
+    ${
+      painel.avisoDeSegregacaoDesligada === null
+        ? ''
+        : `<p class="ressalva-linha" data-severidade="alta"><strong>Leitura desligada.</strong> ${escapar(painel.avisoDeSegregacaoDesligada)}</p>`
+    }
+    <div class="fila">${segregacao}</div>
 
     <h2>Leitura agregada</h2>
     <p class="subtitulo">Frases compostas a partir de dados determinísticos. Causa só é atribuída quando é dedutível.</p>

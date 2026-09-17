@@ -23,6 +23,7 @@ import { PhysicalReconciliationResult } from '../physical-state-reconciliation/t
 import { LinhaDeResumo, resumirDivergencias } from '../narrativa/resumo';
 import { PendenciaDeAprovacao } from '../governanca/aprovacao';
 import { AvisoNaTela } from '../governanca/plantao';
+import { ConflitoDeSegregacao } from '../policy-engine/segregacao';
 import { descreverReconciliacao } from '../narrativa/honestidade';
 import { LinhaDoTempo } from './timeline';
 
@@ -109,6 +110,33 @@ export interface PainelDeAssurance {
    * veio corrigir —, e esconder isso faria a seção parecer resolvida.
    */
   avisoDeCanalAusente: string | null;
+  /**
+   * Acúmulos de atividade incompatível, com porta ou sem porta.
+   *
+   * A fila de aprovação mostra o conflito que esbarrou numa porta. Esta seção
+   * mostra o acúmulo em si, que existe antes de qualquer tentativa de entrada
+   * — e é o que a coordenação precisa para redistribuir a escala em vez de
+   * descobrir o problema pela ordem errada.
+   */
+  segregacao: readonly LinhaDeSegregacao[];
+  /**
+   * A leitura de segregação não está ligada nesta instalação.
+   *
+   * Lista vazia e leitura desligada se parecem na tela, e só uma delas é
+   * notícia boa. A distinção é a mesma do canal de aviso ausente.
+   */
+  avisoDeSegregacaoDesligada: string | null;
+}
+
+export interface LinhaDeSegregacao {
+  relationshipId: string;
+  personId: string;
+  rotulo: string;
+  origem: ConflitoDeSegregacao['origem'];
+  atividades: string;
+  papeis: readonly string[];
+  explicacao: string;
+  procedencia: string;
 }
 
 function cartao(health: AccessGovernanceHealth, paiId: string | null): CartaoDeEscopo {
@@ -134,6 +162,23 @@ export interface AprovacoesNaTela {
   chamados?: readonly AvisoNaTela[];
   /** Há canal de aviso ligado nesta instalação? */
   temCanal?: boolean;
+}
+
+export interface SegregacaoNaTela {
+  linhas: readonly LinhaDeSegregacao[];
+  /** O ciclo avaliou segregação? `false` é estado declarado, não ausência. */
+  avaliada: boolean;
+}
+
+export function avisoDeSegregacaoDesligada(
+  segregacao: SegregacaoNaTela | undefined
+): string | null {
+  if (segregacao?.avaliada === true) return null;
+  return (
+    'A leitura de segregação de funções não está ligada nesta instalação. A tela não sabe ' +
+    'quem acumula autorizar, executar, custodiar e conferir — e não saber não é o mesmo que ' +
+    'não haver.'
+  );
 }
 
 /**
@@ -165,7 +210,8 @@ export function montarPainel(
   topologia: Topologia,
   relatorio: RelatorioDeAssurance,
   timelines: readonly LinhaDoTempo[] = [],
-  aprovacoes?: AprovacoesNaTela
+  aprovacoes?: AprovacoesNaTela,
+  segregacao?: SegregacaoNaTela
 ): PainelDeAssurance {
   const paiPorId = new Map<string, string | null>(topologia.nos.map((no) => [no.id, no.paiId]));
   for (const endpoint of topologia.endpoints) paiPorId.set(endpoint.id, endpoint.zonaId);
@@ -208,7 +254,9 @@ export function montarPainel(
     filaDeAprovacao: aprovacoes?.fila ?? [],
     avisoDeVigencia: avisoDeVigenciaEmSombra(aprovacoes),
     linhasDoPlantao: aprovacoes?.chamados ?? [],
-    avisoDeCanalAusente: avisoDeCanalAusente(aprovacoes)
+    avisoDeCanalAusente: avisoDeCanalAusente(aprovacoes),
+    segregacao: segregacao?.linhas ?? [],
+    avisoDeSegregacaoDesligada: avisoDeSegregacaoDesligada(segregacao)
   };
 }
 

@@ -75,6 +75,18 @@ const painel = montarPainel(bancada.mundo.topologia, relatorio.assurance, timeli
   // operador que o assunto está com alguém, quando pode não estar com ninguém.
   chamados: bancada.plantao.linhasAcumuladas(),
   temCanal: bancada.plantao.temCanal
+}, {
+  linhas: relatorio.conflitosDeSegregacao.map((achado) => ({
+    relationshipId: achado.relationshipId,
+    personId: achado.personId,
+    rotulo: achado.conflito.rotulo,
+    origem: achado.conflito.origem,
+    atividades: achado.conflito.atividades.join(' × '),
+    papeis: achado.conflito.papeisEnvolvidos,
+    explicacao: achado.conflito.explicacao,
+    procedencia: achado.conflito.procedencia
+  })),
+  avaliada: relatorio.segregacaoAvaliada
 });
 const html = renderizarPainel(painel, { documentoCompleto: true });
 

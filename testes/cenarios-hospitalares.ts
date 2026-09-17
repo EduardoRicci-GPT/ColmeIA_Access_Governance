@@ -15,6 +15,14 @@
 import { fechar, grupo, igual, verificar } from './runner';
 import { aprovarCofre, materialDoCofre, montarBancada, tick } from './bancada';
 import { resumirDivergencias } from '../packages/narrativa/resumo';
+import { montarPainel } from '../packages/assurance-ui/painel';
+import { renderizarPainel } from '../packages/assurance-ui/render';
+import {
+  DOMINIOS_DE_SEGREGACAO_BASE,
+  SEGREGACAO_MEDICAMENTOS,
+  conflitosDe,
+  conflitosDoVinculo
+} from '../packages/policy-engine';
 
 async function h7(): Promise<void> {
   grupo('H7 · desligamento de funcionário');
@@ -269,8 +277,163 @@ async function h10(): Promise<void> {
   verificar('e com hora de resolução', resolvidos[0]?.resolvedAt !== undefined);
 }
 
+async function h11(): Promise<void> {
+  grupo('H11 · a farmacêutica que também confere o inventário');
+  // O caso não é fraude: é domingo numa unidade pequena, e a mesma pessoa
+  // guarda o estoque e assina a conferência dele. A tentação do software é
+  // negar. Negar fecha a farmácia para quem está lá, e deixa o acúmulo de pé.
+  const b = montarBancada();
+  await tick(b);
+  // Segundo tick: a ordem foi enviada na volta anterior e o equipamento
+  // confirma nesta. Sem ele, a leitura apanharia o estado no meio do caminho.
+  await tick(b, 3_000);
+
+  const credencial = 'CRED-vin-marina-ep-farm-1';
+  igual(
+    'antes do acúmulo, a farmacêutica tem acesso confirmado',
+    b.registros.obter(credencial)?.estado.lastConfirmedState,
+    'DEVICE_GRANT_CONFIRMED'
+  );
+
+  // A auditoria interna é acrescentada ao MESMO vínculo. Nenhuma pessoa nova
+  // entrou na casa: mudou o que uma pessoa acumula.
+  b.mundo = {
+    ...b.mundo,
+    papeis: [
+      ...b.mundo.papeis,
+      { id: 'role-auditoria-interna', nome: 'Auditoria interna', zonasAutorizadas: ['z-farmacia'] }
+    ],
+    vinculos: b.mundo.vinculos.map((vinculo) =>
+      vinculo.id === 'vin-marina'
+        ? { ...vinculo, roleIds: [...vinculo.roleIds, 'role-auditoria-interna'] }
+        : vinculo
+    )
+  };
+
+  const relatorio = await tick(b, 60_000);
+  const pendente = relatorio.pendentesDeAprovacao.find(
+    (acao) => acao.material.relationshipId === 'vin-marina'
+  );
+  verificar('o acúmulo vira pendência de revisão humana', pendente !== undefined);
+  verificar(
+    'e a razão nomeia a segregação, a origem e a procedência',
+    (pendente?.material.razaoDaPolitica ?? '').includes('Segregação de funções') &&
+      (pendente?.material.razaoDaPolitica ?? '').includes('acúmulo dos papéis') &&
+      (pendente?.material.razaoDaPolitica ?? '').includes('344/1998'),
+    pendente?.material.razaoDaPolitica ?? '(sem pendência)'
+  );
+
+  // A verificação que carrega a decisão de produto inteira.
+  igual(
+    'e a porta NÃO foi fechada: o direito é mantido enquanto gente decide',
+    b.registros.obter(credencial)?.estado.lastConfirmedState,
+    'DEVICE_GRANT_CONFIRMED'
+  );
+  verificar(
+    'nenhuma revogação foi disparada por causa do conflito',
+    !relatorio.acoesLogicas.some(
+      (acao) => acao.material.relationshipId === 'vin-marina' && acao.tipo === 'REVOKE'
+    )
+  );
+
+  // E o que o ADR-0017 e o ADR-0018 acrescentaram entra em cena sozinho: o
+  // pedido é aberto de fato, e quem tem alçada é chamado.
+  const naFila = b.gate.pendencias().find((p) => p.relationshipId === 'vin-marina');
+  verificar('o pedido foi aberto e está na fila da tela', naFila !== undefined);
+  const chamado = relatorio.plantao.avisos.find(
+    (ato) => ato.aviso.pendencia.relationshipId === 'vin-marina'
+  );
+  verificar('e quem tem alçada foi chamado', chamado !== undefined);
+  verificar(
+    'com o chamado dirigido a papéis que decidem a faixa ALTA',
+    (chamado?.aviso.papeisComAlcada.length ?? 0) > 0,
+    chamado?.aviso.papeisComAlcada.join(',') ?? '(sem chamado)'
+  );
+
+  grupo('H11 · a distinção que decide quem conserta');
+  const porAcumulo = conflitosDe(
+    ['role-farmacia', 'role-auditoria-interna'],
+    SEGREGACAO_MEDICAMENTOS
+  );
+  igual('duas funções em pessoas diferentes viram um conflito', porAcumulo.length, 1);
+  igual('classificado como acúmulo de papéis', porAcumulo[0]!.origem, 'ACUMULO_DE_PAPEIS');
+
+  const papelMalDesenhado = conflitosDe(['role-tudo-em-um'], {
+    ...SEGREGACAO_MEDICAMENTOS,
+    atividadesPorPapel: { 'role-tudo-em-um': ['CUSTODIAR', 'CONFERIR'] }
+  });
+  igual('um papel que já nasce acumulando também é conflito', papelMalDesenhado.length, 1);
+  igual(
+    'mas de outra natureza: o cadastro do papel',
+    papelMalDesenhado[0]!.origem,
+    'PAPEL_MAL_DESENHADO'
+  );
+  verificar(
+    'e a explicação diz que redistribuir escala não resolve',
+    papelMalDesenhado[0]!.explicacao.includes('redistribuir a escala não resolve'),
+    papelMalDesenhado[0]!.explicacao
+  );
+
+  grupo('H11 · a matriz responde por si');
+  igual(
+    'papel único e compatível não produz conflito',
+    conflitosDoVinculo(['role-farmacia'], DOMINIOS_DE_SEGREGACAO_BASE).length,
+    0
+  );
+  igual(
+    'e o conflito de um domínio não vaza para o outro',
+    conflitosDe(['role-farmacia', 'role-auditoria-interna'], SEGREGACAO_MEDICAMENTOS)[0]!.dominioId,
+    'medicamentos-controlados'
+  );
+  verificar(
+    'toda matriz declara curador',
+    DOMINIOS_DE_SEGREGACAO_BASE.every((dominio) => dominio.curador.length > 0)
+  );
+  verificar(
+    'e a que deriva da norma sem estar nela diz isso na ressalva',
+    (SEGREGACAO_MEDICAMENTOS.ressalva ?? '').includes('não enumera esta matriz'),
+    SEGREGACAO_MEDICAMENTOS.ressalva ?? '(sem ressalva)'
+  );
+
+  grupo('H11 · o acúmulo aparece na tela, com procedência');
+  const ultimo = await tick(b, 60_000);
+  verificar('o ciclo apurou a segregação', ultimo.segregacaoAvaliada);
+  const achado = ultimo.conflitosDeSegregacao.find((c) => c.relationshipId === 'vin-marina');
+  verificar('e encontrou o acúmulo da farmacêutica', achado !== undefined);
+
+  const painel = montarPainel(b.mundo.topologia, ultimo.assurance, [], undefined, {
+    linhas: ultimo.conflitosDeSegregacao.map((c) => ({
+      relationshipId: c.relationshipId,
+      personId: c.personId,
+      rotulo: c.conflito.rotulo,
+      origem: c.conflito.origem,
+      atividades: c.conflito.atividades.join(' × '),
+      papeis: c.conflito.papeisEnvolvidos,
+      explicacao: c.conflito.explicacao,
+      procedencia: c.conflito.procedencia
+    })),
+    avaliada: ultimo.segregacaoAvaliada
+  });
+  igual('a seção da tela recebe a linha', painel.segregacao.length, 1);
+  igual('sem aviso de leitura desligada', painel.avisoDeSegregacaoDesligada, null);
+  verificar(
+    'e o HTML traz a procedência junto do conflito',
+    renderizarPainel(painel).includes('Procedência:')
+  );
+
+  // Desligada e vazia se parecem na tela, e só uma delas é notícia boa.
+  const semLeitura = montarPainel(b.mundo.topologia, ultimo.assurance);
+  igual('sem domínios, a seção não finge estar limpa', semLeitura.segregacao.length, 0);
+  verificar(
+    'ela declara que a leitura não foi feita',
+    (semLeitura.avisoDeSegregacaoDesligada ?? '').includes('não saber não é o mesmo que não haver'),
+    semLeitura.avisoDeSegregacaoDesligada ?? '(nulo)'
+  );
+}
+
 await h7();
 await h8();
 await h9();
 await h10();
-fechar('Cenários hospitalares H7–H10');
+await h11();
+fechar('Cenários hospitalares H7–H11');
