@@ -46,6 +46,19 @@ import {
 import { MaterialDeRevisao } from '../governanca/aprovacao';
 import { ResumoDoPlantao } from '../governanca/plantao';
 import { JANELA_DE_RECORRENCIA_DIAS } from '../governanca/emergencia';
+import { EscalationCase } from '../dominio/escalonamento';
+
+/** Os dois despachos do ciclo, somados sem perder a separação das espécies. */
+function unirResumos(a: ResumoDoPlantao, b: ResumoDoPlantao): ResumoDoPlantao {
+  return {
+    avisos: [...a.avisos, ...b.avisos],
+    emergencias: [...a.emergencias, ...b.emergencias],
+    casos: [...a.casos, ...b.casos],
+    entregues: a.entregues + b.entregues,
+    naoEntregues: a.naoEntregues + b.naoEntregues,
+    semAlcada: a.semAlcada + b.semAlcada
+  };
+}
 import {
   ConflitoDeSegregacao,
   DominioDeSegregacao,
@@ -132,6 +145,15 @@ export interface AberturaDePedidoDeAprovacao {
 
 export interface PlantaoDeChamados {
   despachar(): Promise<ResumoDoPlantao>;
+  /**
+   * Segunda chamada, em outro momento do ciclo.
+   *
+   * Não é uma conveniência: os casos de escalonamento só existem depois que o
+   * assurance rodou, e o chamado da aprovação precisa sair antes da
+   * materialização. Uma chamada só faria uma das duas trabalhar sobre os fatos
+   * da volta anterior.
+   */
+  despacharCasos(casos: readonly EscalationCase[]): Promise<ResumoDoPlantao>;
 }
 
 export interface DiarioDrenavel {
@@ -142,6 +164,7 @@ export interface DiarioDrenavel {
 const PLANTAO_NAO_CONFIGURADO: ResumoDoPlantao = Object.freeze({
   avisos: Object.freeze([]) as ResumoDoPlantao['avisos'],
   emergencias: Object.freeze([]) as ResumoDoPlantao['emergencias'],
+  casos: Object.freeze([]) as ResumoDoPlantao['casos'],
   entregues: 0,
   naoEntregues: 0,
   semAlcada: 0
@@ -282,6 +305,16 @@ export class CicloDeGovernanca {
     });
     this.deps.assuranceEngine.encerrarCasosResolvidos(resumoFisico.resultados);
 
+    // 5.5. E quem responde pelos casos é chamado.
+    //
+    // Aqui, e não junto do chamado da aprovação, porque só agora os casos
+    // existem. O achado central deste produto — uma revogação que nunca chegou
+    // à porta — era descoberto, pontuado no score, exibido na tela e não
+    // chamava ninguém; esta linha é o que fecha esse laço.
+    const chamadosDeCaso = this.deps.plantao
+      ? await this.deps.plantao.despacharCasos(assurance.casosAbertos)
+      : PLANTAO_NAO_CONFIGURADO;
+
     // Selagem no ledger. Os eventos do assurance entram assinados por ele —
     // são leitura, não decisão —, e cada elo carrega o corpo de origem.
     const assinados: EventoAssinado[] = [
@@ -305,7 +338,10 @@ export class CicloDeGovernanca {
       momento,
       acoesLogicas: logica.acoes,
       pendentesDeAprovacao: logica.pendentesDeAprovacao,
-      plantao,
+      // Os dois despachos chegam ao relatório como um só resumo: quem lê quer
+      // saber quantas pessoas o ciclo chamou e quantas ficaram sem chamada, não
+      // em que passo cada chamada saiu.
+      plantao: unirResumos(plantao, chamadosDeCaso),
       conflitosDeSegregacao,
       segregacaoAvaliada: this.deps.dominiosDeSegregacao !== undefined,
       atosDeAprovacaoRegistrados,

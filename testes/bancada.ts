@@ -17,6 +17,8 @@ import {
   AutoridadeEmMemoria,
   CanalEmMemoria,
   EscopoDeDelegacao,
+  ENCAMINHAMENTO_HOSPITALAR,
+  EncaminhamentoPorTipo,
   EXIGENCIAS_HOSPITALARES,
   GateDeAcesso,
   JANELAS_PADRAO,
@@ -341,6 +343,10 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     // produto não chama ninguém — que é o defeito que o ADR-0023 declarou em
     // aberto ao ser escrito.
     emergencias,
+    // Quem responde por cada TIPO de caso — a segunda porta do host. Sem ela, o
+    // produto descobre a divergência, pontua o score, mostra na tela e não
+    // chama ninguém.
+    encaminhamento: new EncaminhamentoPorTipo(ENCAMINHAMENTO_HOSPITALAR),
     diario
   });
 

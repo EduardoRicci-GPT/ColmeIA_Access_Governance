@@ -22,7 +22,11 @@ import { RelatorioDeAssurance } from '../observability-assurance/assurance';
 import { PhysicalReconciliationResult } from '../physical-state-reconciliation/tipos';
 import { LinhaDeResumo, resumirDivergencias } from '../narrativa/resumo';
 import { PendenciaDeAprovacao } from '../governanca/aprovacao';
-import { AvisoDeEmergenciaNaTela, AvisoNaTela } from '../governanca/plantao';
+import {
+  AvisoDeAssuranceNaTela,
+  AvisoDeEmergenciaNaTela,
+  AvisoNaTela
+} from '../governanca/plantao';
 import { ConflitoDeSegregacao } from '../policy-engine/segregacao';
 import { ResponsabilidadeTemporaria } from '../governanca/responsabilidade';
 import { HabilitacaoDaPessoa } from '../governanca/competencia';
@@ -75,6 +79,23 @@ export interface PainelDeAssurance {
   filaDeRisco: readonly ItemDaFila[];
   resumo: readonly LinhaDeResumo[];
   casos: readonly EscalationCase[];
+  /**
+   * Quem foi chamado sobre cada caso — ou por que ninguém foi.
+   *
+   * Fica ao lado da tabela de casos pela mesma razão que a linha do chamado
+   * fica ao lado da fila de aprovação: a tabela diz o que está aberto, esta
+   * linha diz se alguém sabe. Uma tela que mostrasse só a primeira deixaria o
+   * operador supor que o assunto está com alguém.
+   */
+  chamadosDeCaso: readonly AvisoDeAssuranceNaTela[];
+  /**
+   * O plantão não encaminha caso nenhum nesta instalação.
+   *
+   * O aviso mais caro desta tela, e o último a existir: o produto inteiro foi
+   * construído para descobrir a revogação que não chegou à porta, e durante
+   * todo esse tempo a descoberta não chamava ninguém.
+   */
+  avisoDeEncaminhamentoDesligado: string | null;
   timelines: readonly LinhaDoTempo[];
   /** Total de itens que a tela declara NÃO saber. */
   incertezas: number;
@@ -395,6 +416,21 @@ export interface AprovacoesNaTela {
   temCanal?: boolean;
 }
 
+export interface CasosNaTela {
+  chamados?: readonly AvisoDeAssuranceNaTela[];
+  /** O plantão tem encaminhamento por tipo ligado? */
+  encaminha: boolean;
+}
+
+export function avisoDeEncaminhamentoDesligado(casos: CasosNaTela | undefined): string | null {
+  if (casos?.encaminha === true) return null;
+  return (
+    'Nenhum encaminhamento de casos está configurado. As divergências desta tela são ' +
+    'descobertas, pontuadas no Health Score e exibidas aqui — e ninguém é chamado sobre ' +
+    'elas. Enquanto for assim, o caso só alcança quem abrir esta tela.'
+  );
+}
+
 export interface SegregacaoNaTela {
   linhas: readonly LinhaDeSegregacao[];
   /** O ciclo avaliou segregação? `false` é estado declarado, não ausência. */
@@ -491,6 +527,7 @@ export interface SecoesDoPainel {
   responsabilidades?: readonly LinhaDeResponsabilidade[];
   habilitacoes?: readonly LinhaDeHabilitacao[];
   emergencias?: EmergenciasNaTela;
+  casos?: CasosNaTela;
   explicacao?: ExplicacaoDeAcesso;
 }
 
@@ -535,6 +572,8 @@ export function montarPainel(
     filaDeRisco,
     resumo: resumirDivergencias(topologia, relatorio.filaDeRisco),
     casos: relatorio.casosAbertos,
+    chamadosDeCaso: secoes.casos?.chamados ?? [],
+    avisoDeEncaminhamentoDesligado: avisoDeEncaminhamentoDesligado(secoes.casos),
     timelines,
     incertezas: relatorio.filaDeRisco.filter((resultado) => resultado.confidence === 'UNKNOWN').length,
     avisoDeCalibragem: avisoDeSombra(relatorio.arvore.calibragem),

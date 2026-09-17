@@ -153,3 +153,12 @@ era uma porta sem chamador — era uma LEITURA sem leitor, que compila, tem test
 e não muda número nenhum. O ADR-0025 a ligou, e a regra ganha a extensão que
 faltava: **um indicador que nenhum score consome é um indicador que não
 existe.**
+
+E uma sexta, que é a mais cara de todas e por isso fecha a série: o caso de
+escalonamento. A revogação que nunca chegou à porta — o achado que justifica a
+existência deste produto — era detectada pela reconciliação, pontuada pelo
+score, desenhada na timeline, nomeada como caso, e não chamava ninguém. O
+ADR-0026 a ligou. Vale registrar o que as seis têm em comum: nenhuma era um
+erro de lógica. Todas eram capacidades corretas, testadas, sem chamador — e
+seis ocorrências no mesmo repositório dizem que este é o modo de falha
+característico de um produto construído por camadas bem separadas.

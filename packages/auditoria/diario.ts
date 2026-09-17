@@ -32,7 +32,12 @@ import {
   DiarioDeAprovacao,
   MaterialDeRevisao
 } from '../governanca/aprovacao';
-import { AtoDeAviso, AtoDeAvisoDeEmergencia, DiarioDeAviso } from '../governanca/plantao';
+import {
+  AtoDeAviso,
+  AtoDeAvisoDeAssurance,
+  AtoDeAvisoDeEmergencia,
+  DiarioDeAviso
+} from '../governanca/plantao';
 import { AtoDeResponsabilidade, DiarioDeResponsabilidade } from '../governanca/responsabilidade';
 import { AtoDeEmergencia, DiarioDeEmergencia } from '../governanca/emergencia';
 import { EventoDeDominio } from '../dominio/eventos';
@@ -193,6 +198,21 @@ function resumoDoAvisoDeEmergencia(ato: AtoDeAvisoDeEmergencia): string {
   return ato.entrega.entregue
     ? `${cabeca}. Entregue pelo canal ${ato.canal}.`
     : `${cabeca}. NÃO entregue: ${ato.entrega.detalhe}`;
+}
+
+/** Frase determinística do chamado sobre um caso de escalonamento. */
+function resumoDoAvisoDeAssurance(ato: AtoDeAvisoDeAssurance): string {
+  const { aviso, entrega } = ato;
+  const alvo =
+    aviso.papeisComAlcada.length === 0
+      ? 'nenhum papel responsável por este tipo nesta instalação'
+      : `${aviso.papeisComAlcada.length} papéis responsáveis (${[...aviso.papeisComAlcada].sort().join(', ')})`;
+  const cabeca =
+    `Chamado ${aviso.degrau} sobre o caso ${aviso.casoId} (${aviso.tipo}, ` +
+    `severidade ${aviso.caso.severity}), dirigido a ${alvo}`;
+  return entrega.entregue
+    ? `${cabeca}. Entregue pelo canal ${ato.canal}.`
+    : `${cabeca}. NÃO entregue: ${entrega.detalhe}`;
 }
 
 export class DiarioNaTrilha
@@ -480,6 +500,50 @@ export class DiarioNaTrilha
           : {})
       },
       resumo: resumoDaEmergencia(ato)
+    });
+  }
+
+  /**
+   * O chamado sobre a divergência física.
+   *
+   * Sem `decisionOrigin`, como todo chamado: convocar não é decidir. E com o
+   * TIPO do caso nos dados, porque é ele que responde a pergunta seguinte de
+   * qualquer investigação — "chamaram sobre o quê?".
+   */
+  registrarAvisoDeAssurance(ato: AtoDeAvisoDeAssurance): void {
+    this.sequencia += 1;
+    const prefixo = this.opcoes.prefixoDeId ?? 'APROV';
+    const id = `${prefixo}-${String(this.sequencia).padStart(5, '0')}`;
+    const tipo = ato.entrega.entregue
+      ? 'EscalationNotified'
+      : 'EscalationNotificationUndelivered';
+    const { aviso } = ato;
+
+    this.pendentes.push({
+      id,
+      tipo,
+      ocorridoEm: aviso.em,
+      registradoEm: aviso.em,
+      origemDeIngestao: 'LOCAL_EVENT',
+      idempotencyKey: `${aviso.casoId}::${tipo}::${aviso.degrau}`,
+      organizationId: this.opcoes.organizationId,
+      facilityId: this.opcoes.facilityId,
+      endpointId: aviso.caso.endpointId,
+      personId: aviso.caso.subjectId,
+      dados: {
+        casoId: aviso.casoId,
+        tipoDeCaso: aviso.tipo,
+        severidade: aviso.caso.severity,
+        degrau: aviso.degrau,
+        faixa: aviso.faixa,
+        // Papéis, nunca pessoas — pela mesma razão dos outros dois chamados.
+        papeisComAlcada: [...aviso.papeisComAlcada].sort(),
+        canal: ato.canal,
+        entregue: ato.entrega.entregue,
+        detalhe: ato.entrega.detalhe,
+        referencia: ato.entrega.referencia
+      },
+      resumo: resumoDoAvisoDeAssurance(ato)
     });
   }
 

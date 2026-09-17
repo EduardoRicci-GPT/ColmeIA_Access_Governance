@@ -36,6 +36,8 @@ import {
   lerJanelasDeAviso
 } from '../packages/governanca';
 import { AutoridadeDoHost, Criticidade as CriticidadeDoGate, DecisaoDeGate } from '../packages/mpeh-kernel/human-gate/tipos';
+import { ENCAMINHAMENTO_HOSPITALAR, EncaminhamentoPorTipo } from '../packages/governanca';
+import { EscalationCase } from '../packages/dominio/escalonamento';
 
 function bancadaDoGate() {
   const relogio = new RelogioFixo('2026-09-11T08:00:00');
@@ -977,6 +979,176 @@ grupo('Recusa não vira pressão, e as janelas do aviso ficam em sombra');
   verificar(
     'toda constante do aviso declara curador',
     CONSTANTES_DE_AVISO.every((constante) => constante.curador.length > 0)
+  );
+}
+
+grupo('A terceira espécie: o caso de escalonamento chama quem responde pelo TIPO');
+{
+  const relogio = new RelogioFixo('2026-09-11T08:00:00');
+  const canal = new CanalEmMemoria();
+  const { gate, autoridade } = bancadaDoGate();
+  const plantao = new PlantaoDeAprovacao({
+    fila: gate,
+    autoridade,
+    papeisConhecidos: ALCADAS_HOSPITALARES.map((alcada) => alcada.papel),
+    relogio,
+    canal,
+    encaminhamento: new EncaminhamentoPorTipo(ENCAMINHAMENTO_HOSPITALAR)
+  });
+
+  const caso = (
+    id: string,
+    type: EscalationCase['type'],
+    severity: EscalationCase['severity'],
+    status: EscalationCase['status'] = 'OPEN'
+  ): EscalationCase => ({
+    id,
+    type,
+    severity,
+    endpointId: 'ep-farm-2',
+    reason: 'Revogação enviada e sem confirmação do equipamento.',
+    status,
+    createdAt: relogio.agora(),
+    evidencias: ['EVT-1']
+  });
+
+  const resumo = await plantao.despacharCasos([
+    caso('ESC-1', 'REVOCATION_NOT_CONFIRMED', 'CRITICAL'),
+    caso('ESC-2', 'GATEWAY_OFFLINE', 'HIGH')
+  ]);
+  igual('os dois casos abertos geram chamado', resumo.casos.length, 2);
+  igual('e são da espécie do assurance', resumo.casos[0]!.aviso.especie, 'ASSURANCE');
+
+  // O ponto do encaminhamento por tipo: a revogação não confirmada vai para a
+  // segurança, e o gateway caído vai para facilities. Reaproveitar a alçada de
+  // aprovação chamaria a diretoria técnica às 3h por causa de uma catraca.
+  const porCaso = new Map(resumo.casos.map((a) => [a.aviso.casoId, a.aviso.papeisComAlcada]));
+  igual(
+    'a revogação não confirmada vai para a segurança',
+    porCaso.get('ESC-1')?.join(','),
+    'supervisao-de-seguranca'
+  );
+  igual(
+    'e o gateway caído vai para facilities',
+    porCaso.get('ESC-2')?.join(','),
+    'gerencia-de-facilities'
+  );
+  verificar(
+    'o texto diz que a insistência só para no reconhecimento',
+    resumo.casos[0]!.aviso.texto.includes('só para quando alguém reconhecer'),
+    resumo.casos[0]!.aviso.texto
+  );
+
+  // Idempotência pelo mesmo intervalo de reforço da aprovação.
+  const mesmoMinuto = await plantao.despacharCasos([
+    caso('ESC-1', 'REVOCATION_NOT_CONFIRMED', 'CRITICAL')
+  ]);
+  igual('no mesmo minuto ninguém é chamado de novo', mesmoMinuto.casos.length, 0);
+  relogio.avancarMs(15 * 60_000);
+  const insistindo = await plantao.despacharCasos([
+    caso('ESC-1', 'REVOCATION_NOT_CONFIRMED', 'CRITICAL')
+  ]);
+  igual('passado o reforço, o toque se repete', insistindo.casos.length, 1);
+  igual('e é o segundo degrau', insistindo.casos[0]!.aviso.degrau, 2);
+
+  // O laço que a fila de aprovação não tem: reconhecer encerra a cobrança, e
+  // reconhecer não é resolver.
+  relogio.avancarMs(15 * 60_000);
+  const reconhecido = await plantao.despacharCasos([
+    caso('ESC-1', 'REVOCATION_NOT_CONFIRMED', 'CRITICAL', 'ACKNOWLEDGED')
+  ]);
+  igual('reconhecido, o chamado para — mesmo sem estar resolvido', reconhecido.casos.length, 0);
+}
+{
+  // Rota declarada vazia: a decisão de não acordar ninguém é FATO REGISTRADO,
+  // e não silêncio. É a mesma disciplina de `CANAL_AUSENTE`.
+  const relogio = new RelogioFixo('2026-09-11T08:00:00');
+  const { gate, autoridade } = bancadaDoGate();
+  const trilha = new TrilhaDeAcesso({ relogio });
+  const diario = new DiarioNaTrilha(trilha, { organizationId: 'org-sinergentia' });
+  const plantao = new PlantaoDeAprovacao({
+    fila: gate,
+    autoridade,
+    papeisConhecidos: ALCADAS_HOSPITALARES.map((alcada) => alcada.papel),
+    relogio,
+    canal: new CanalEmMemoria(),
+    encaminhamento: new EncaminhamentoPorTipo(ENCAMINHAMENTO_HOSPITALAR),
+    diario
+  });
+
+  const resumo = await plantao.despacharCasos([
+    {
+      id: 'ESC-9',
+      type: 'LATENCY_ANOMALY',
+      severity: 'LOW',
+      reason: 'Latência acima do limiar em três operações.',
+      status: 'OPEN',
+      createdAt: relogio.agora(),
+      evidencias: []
+    }
+  ]);
+  igual('o chamado é computado assim mesmo', resumo.casos.length, 1);
+  igual('sem ninguém a chamar', resumo.semAlcada, 1);
+  verificar(
+    'e o motivo é dito por extenso',
+    resumo.casos[0]!.entrega.detalhe.includes('Nenhum papel desta instalação responde'),
+    resumo.casos[0]!.entrega.detalhe
+  );
+
+  await diario.drenar();
+  const eventos = await trilha.todos();
+  verificar(
+    'a ausência de destinatário vira elo, com tipo próprio',
+    eventos.some((e) => e.tipo === 'EscalationNotificationUndelivered')
+  );
+  verificar(
+    'e o elo diz sobre que tipo de caso se chamaria',
+    eventos.some(
+      (e) => e.tipo === 'EscalationNotificationUndelivered' && e.dados?.tipoDeCaso === 'LATENCY_ANOMALY'
+    )
+  );
+}
+{
+  // A verificação de D-022: a bancada é o sistema montado. Se o ciclo não
+  // chamar `despacharCasos`, o produto descobre a divergência e não avisa
+  // ninguém — que é o defeito que este bloco inteiro veio corrigir.
+  const b = montarBancada();
+  await tick(b);
+  b.simulador.colocarEndpointOffline('ep-farm-2');
+  b.mundo = {
+    ...b.mundo,
+    vinculos: b.mundo.vinculos.map((v) =>
+      v.id === 'vin-marina' ? { ...v, situacao: 'TERMINATED' as const } : v
+    )
+  };
+  let comCaso = await tick(b, 60_000);
+  for (let i = 0; i < 4 && comCaso.plantao.casos.length === 0; i += 1) {
+    comCaso = await tick(b, 30 * 60_000);
+  }
+  verificar(
+    'o ciclo chama quem responde pela divergência física',
+    comCaso.plantao.casos.length > 0,
+    `casos abertos: ${comCaso.assurance.casosAbertos.length}`
+  );
+
+  const painel = montarPainel(b.mundo.topologia, comCaso.assurance, [], {
+    casos: {
+      chamados: b.plantao.linhasAcumuladasDeCasos(),
+      encaminha: b.plantao.encaminhaCasos
+    }
+  });
+  verificar('a tela não precisa avisar que ninguém é chamado', painel.avisoDeEncaminhamentoDesligado === null);
+  verificar('e cada caso aberto tem a sua linha de chamado', painel.chamadosDeCaso.length > 0);
+
+  const html = renderizarPainel(painel);
+  verificar('o HTML ganhou a coluna do chamado', html.includes('<th>Chamado</th>'));
+
+  // Sem a seção declarada, a tela denuncia o buraco em vez de parecer resolvida.
+  const semSecao = montarPainel(b.mundo.topologia, comCaso.assurance);
+  verificar(
+    'sem encaminhamento declarado, a tela diz que ninguém é chamado',
+    (semSecao.avisoDeEncaminhamentoDesligado ?? '').includes('Nenhum encaminhamento'),
+    semSecao.avisoDeEncaminhamentoDesligado ?? '(nulo)'
   );
 }
 

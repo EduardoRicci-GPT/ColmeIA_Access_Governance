@@ -61,6 +61,8 @@ import {
 import { Relogio } from '../dominio/tempo';
 import { criticidadeDoGate, PendenciaDeAprovacao } from './aprovacao';
 import { QuebraDeVidro } from './emergencia';
+import { EncaminhamentoDeCasos } from './autoridade';
+import { EscalationCase } from '../dominio/escalonamento';
 
 const CURADOR = 'Nível E — governança de acesso ColmeIA';
 const VERIFICADO_EM = '2026-09-17';
@@ -274,8 +276,39 @@ export interface AvisoDeEmergencia {
   em: Date;
 }
 
-/** O que um canal do host recebe. Duas espécies, um caminho. */
-export type AvisoDoPlantao = AvisoDeAprovacao | AvisoDeEmergencia;
+/**
+ * O aviso do assurance — e a terceira postura possível.
+ *
+ * As três espécies não são variações de estilo; são três relações diferentes
+ * com o tempo, e cada uma pede uma insistência própria:
+ *
+ *   · APROVAÇÃO convoca uma decisão que falta, e insiste até alguém decidir.
+ *   · EMERGÊNCIA informa um fato consumado, uma vez por fato.
+ *   · ASSURANCE convoca trabalho operacional sobre uma condição que PERSISTE —
+ *     e insiste até alguém RECONHECER o caso.
+ *
+ * A terceira é a única cujo laço fecha sozinho de forma legítima, e isso vale
+ * notar: o caso de escalonamento tem `acknowledgedAt`, então existe um ato
+ * humano que encerra a insistência sem resolver o problema. É exatamente o
+ * desfecho que a fila de aprovação não tem (backlog 5e) — aqui ele já nasceu
+ * no tipo, porque o ADR-0010 o pôs lá quando desenhou o escalonamento.
+ */
+export interface AvisoDeAssurance {
+  especie: 'ASSURANCE';
+  casoId: string;
+  /** O porquê do chamado é o TIPO do caso. Não há segundo motivo a inventar. */
+  tipo: EscalationCase['type'];
+  degrau: number;
+  faixa: CriticidadeDoGate;
+  /** Papéis que respondem por este TIPO — nunca os que têm alçada de aprovar. */
+  papeisComAlcada: readonly string[];
+  caso: EscalationCase;
+  texto: string;
+  em: Date;
+}
+
+/** O que um canal do host recebe. Três espécies, um caminho. */
+export type AvisoDoPlantao = AvisoDeAprovacao | AvisoDeEmergencia | AvisoDeAssurance;
 
 export interface EntregaDeAviso {
   entregue: boolean;
@@ -320,6 +353,17 @@ export const CANAL_AUSENTE: CanalDeAviso = {
   }
 };
 
+function chaveDoAviso(aviso: AvisoDoPlantao): string {
+  switch (aviso.especie) {
+    case 'APROVACAO':
+      return aviso.pedidoId;
+    case 'EMERGENCIA':
+      return aviso.quebraId;
+    case 'ASSURANCE':
+      return aviso.casoId;
+  }
+}
+
 /** Canal de bancada: guarda o que receberia e sempre entrega. */
 export class CanalEmMemoria implements CanalDeAviso {
   readonly id = 'canal-em-memoria';
@@ -330,7 +374,7 @@ export class CanalEmMemoria implements CanalDeAviso {
     return {
       entregue: true,
       detalhe: `Aviso entregue ao canal de bancada para ${aviso.papeisComAlcada.length} papéis com alçada.`,
-      referencia: `${aviso.especie === 'APROVACAO' ? aviso.pedidoId : aviso.quebraId}#${aviso.degrau}`
+      referencia: `${chaveDoAviso(aviso)}#${aviso.degrau}`
     };
   }
 }
@@ -348,6 +392,12 @@ export interface AtoDeAvisoDeEmergencia {
   entrega: EntregaDeAviso;
 }
 
+export interface AtoDeAvisoDeAssurance {
+  aviso: AvisoDeAssurance;
+  canal: string;
+  entrega: EntregaDeAviso;
+}
+
 export interface DiarioDeAviso {
   registrarAviso(ato: AtoDeAviso): void;
   /**
@@ -360,6 +410,15 @@ export interface DiarioDeAviso {
    * segunda é a que tem consequência imediata.
    */
   registrarAvisoDeEmergencia(ato: AtoDeAvisoDeEmergencia): void;
+  /**
+   * O chamado do assurance, entregue ou não.
+   *
+   * Terceiro método pela mesma razão que existiu o segundo: o elo precisa dizer
+   * QUE espécie de chamado não alcançou ninguém. "Divergência física aberta há
+   * quarenta minutos e ninguém foi chamado" é uma frase que uma investigação
+   * procura, e ela não pode estar escondida dentro de um tipo genérico.
+   */
+  registrarAvisoDeAssurance(ato: AtoDeAvisoDeAssurance): void;
 }
 
 /** O que a tela mostra sobre o chamado de uma pendência. */
@@ -377,6 +436,14 @@ export interface AvisoDeEmergenciaNaTela {
   texto: string;
 }
 
+/** O que a tela mostra sobre o chamado de um caso de escalonamento. */
+export interface AvisoDeAssuranceNaTela {
+  casoId: string;
+  tipo: EscalationCase['type'];
+  entregue: boolean;
+  texto: string;
+}
+
 export interface ResumoDoPlantao {
   avisos: readonly AtoDeAviso[];
   /**
@@ -387,6 +454,11 @@ export interface ResumoDoPlantao {
    * quando ela não é pendência: já aconteceu.
    */
   emergencias: readonly AtoDeAvisoDeEmergencia[];
+  /**
+   * Os chamados do assurance, em lista própria pelo mesmo motivo das outras
+   * duas: são outro ato, com outra insistência e outro destinatário.
+   */
+  casos: readonly AtoDeAvisoDeAssurance[];
   entregues: number;
   naoEntregues: number;
   /** Chamados que não tinham a quem chamar: nenhum papel com alçada na faixa. */
@@ -396,6 +468,7 @@ export interface ResumoDoPlantao {
 const RESUMO_VAZIO: ResumoDoPlantao = Object.freeze({
   avisos: Object.freeze([]) as readonly AtoDeAviso[],
   emergencias: Object.freeze([]) as readonly AtoDeAvisoDeEmergencia[],
+  casos: Object.freeze([]) as readonly AtoDeAvisoDeAssurance[],
   entregues: 0,
   naoEntregues: 0,
   semAlcada: 0
@@ -433,6 +506,16 @@ export interface DependenciasDoPlantao {
    * todos: a quebra de vidro é o evento mais urgente deste produto.
    */
   emergencias?: EmergenciasNoPlantao;
+  /**
+   * Quem responde por cada tipo de caso.
+   *
+   * Ausente significa que o plantão não chama ninguém sobre divergência física
+   * — e a tela é obrigada a dizer isso, pela mesma razão que diz que não há
+   * canal. Uma revogação que nunca chegou à porta é o achado central deste
+   * produto; descobri-lo e não chamar ninguém seria a versão mais cara da
+   * negativa silenciosa.
+   */
+  encaminhamento?: EncaminhamentoDeCasos;
   antecedencia?: JanelasDeAviso;
   reforco?: JanelasDeAviso;
   diario?: DiarioDeAviso;
@@ -528,6 +611,49 @@ function textoDaEmergencia(
   );
 }
 
+const ASSUNTO_DO_CASO: Readonly<Record<EscalationCase['type'], string>> = Object.freeze({
+  REVOCATION_NOT_CONFIRMED: 'uma revogação que não chegou à porta',
+  SYNC_EXHAUSTED_RETRIES: 'uma sincronização que esgotou as tentativas',
+  ENDPOINT_CRITICAL_OFFLINE: 'uma porta crítica sem comunicação',
+  GATEWAY_OFFLINE: 'um gateway sem comunicação',
+  PROVIDER_UNAVAILABLE: 'um provedor indisponível',
+  POLICY_CONFLICT: 'um conflito de política',
+  LATENCY_ANOMALY: 'latência fora do esperado',
+  UNKNOWN_PHYSICAL_STATE: 'um estado físico que o sistema não consegue afirmar',
+  COVERAGE_GAP: 'uma zona de cuidado que ficaria sem ninguém com acesso'
+});
+
+/**
+ * A frase do caso.
+ *
+ * `COVERAGE_GAP` tem fecho próprio, e é o único que tem: todos os outros tipos
+ * avisam que uma porta pode abrir para quem não deveria entrar; este avisa que
+ * uma porta não vai abrir para quem precisa. Dar a ele o mesmo texto dos demais
+ * faria a única falha do conjunto que tem consequência assistencial parecer
+ * mais uma linha de infraestrutura.
+ */
+function textoDoCaso(
+  caso: EscalationCase,
+  degrau: number,
+  papeis: readonly string[]
+): string {
+  const quem =
+    papeis.length === 0
+      ? 'NENHUM papel desta instalação responde por este tipo de caso'
+      : `Respondem por este tipo: ${[...papeis].sort().join(', ')}`;
+  const insistencia = degrau > 1 ? ` Toque ${degrau} sobre o mesmo caso.` : '';
+  const onde = caso.endpointId ? ` em ${caso.endpointId}` : '';
+  const fecho =
+    caso.type === 'COVERAGE_GAP'
+      ? ' Aqui não é porta que abre para quem não devia: é porta que não abre para quem precisa.'
+      : '';
+  return (
+    `Caso ${caso.id} (${caso.severity}) aberto desde ${caso.createdAt.toISOString()}: ` +
+    `${ASSUNTO_DO_CASO[caso.type]}${onde}. ${caso.reason} ${quem}.` +
+    `${fecho}${insistencia} O chamado só para quando alguém reconhecer o caso.`
+  );
+}
+
 function horaCurta(data: Date): string {
   return `${String(data.getHours()).padStart(2, '0')}:${String(data.getMinutes()).padStart(2, '0')}`;
 }
@@ -557,6 +683,18 @@ function linhaDoAtoDeEmergencia(ato: AtoDeAvisoDeEmergencia): AvisoDeEmergenciaN
   };
 }
 
+function linhaDoAtoDeAssurance(ato: AtoDeAvisoDeAssurance): AvisoDeAssuranceNaTela {
+  const quando = horaCurta(ato.aviso.em);
+  return {
+    casoId: ato.aviso.casoId,
+    tipo: ato.aviso.tipo,
+    entregue: ato.entrega.entregue,
+    texto: ato.entrega.entregue
+      ? `Chamado ${ato.aviso.degrau} às ${quando} por ${ato.canal}: ${ato.aviso.papeisComAlcada.length} papéis respondem por este tipo.`
+      : `Ninguém foi chamado sobre este caso. ${ato.entrega.detalhe}`
+  };
+}
+
 /**
  * O plantão.
  *
@@ -582,6 +720,8 @@ export class PlantaoDeAprovacao {
    */
   private readonly emergenciasComunicadas = new Set<string>();
   private readonly atosDeEmergencia = new Map<string, AtoDeAvisoDeEmergencia>();
+  private readonly estadoDosCasos = new Map<string, EstadoDoChamado>();
+  private readonly ultimoAtoDeCaso = new Map<string, AtoDeAvisoDeAssurance>();
   private readonly antecedencia: JanelasDeAviso;
   private readonly reforco: JanelasDeAviso;
   private readonly canal: CanalDeAviso;
@@ -684,10 +824,99 @@ export class PlantaoDeAprovacao {
     return {
       avisos: atos,
       emergencias,
+      casos: [],
       entregues,
       naoEntregues: total - entregues,
       semAlcada
     };
+  }
+
+  /**
+   * A varredura do assurance, em chamada separada — e o motivo é a ordem do
+   * ciclo, não a estética.
+   *
+   * `despachar()` roda ANTES da materialização, porque o aviso mais valioso da
+   * aprovação é o da que ainda está vigente e vai vencer. Os casos de
+   * escalonamento só existem DEPOIS que o assurance rodou, no fim do ciclo.
+   * Chamar as duas coisas no mesmo ponto faria uma das duas trabalhar sobre
+   * fatos da volta anterior — e um chamado sobre a divergência do minuto
+   * passado é uma promessa de que o produto acompanha, quebrada em silêncio.
+   *
+   * Idempotente pelo intervalo de reforço, como a aprovação. O laço fecha no
+   * reconhecimento: caso reconhecido sai da varredura, mesmo sem estar
+   * resolvido, porque o ato humano de assumir é o que a insistência buscava.
+   */
+  async despacharCasos(casos: readonly EscalationCase[]): Promise<ResumoDoPlantao> {
+    const encaminhamento = this.deps.encaminhamento;
+    if (!encaminhamento || casos.length === 0) return RESUMO_VAZIO;
+
+    const agora = this.deps.relogio.agora();
+    const atos: AtoDeAvisoDeAssurance[] = [];
+    let entregues = 0;
+    let semAlcada = 0;
+
+    for (const caso of casos) {
+      // Reconhecido, resolvido ou descartado: alguém assumiu, e insistir depois
+      // disso é cobrar de quem já respondeu.
+      if (caso.status !== 'OPEN') continue;
+
+      const faixa = criticidadeDoGate(caso.severity);
+      const anterior = this.estadoDosCasos.get(caso.id);
+      if (anterior && !this.passouDoReforco(anterior.ultimoEm, agora, faixa)) continue;
+
+      const degrau = (anterior?.degrau ?? 0) + 1;
+      const papeisComAlcada = await encaminhamento.papeisPara(caso.type, caso.severity);
+      const aviso: AvisoDeAssurance = {
+        especie: 'ASSURANCE',
+        casoId: caso.id,
+        tipo: caso.type,
+        degrau,
+        faixa,
+        papeisComAlcada,
+        caso,
+        texto: textoDoCaso(caso, degrau, papeisComAlcada),
+        em: agora
+      };
+
+      const entrega =
+        papeisComAlcada.length === 0
+          ? {
+              entregue: false,
+              detalhe:
+                'Nenhum papel desta instalação responde por este tipo de caso. O caso ' +
+                'permanece aberto na tela e depende de alguém receber a atribuição, não ' +
+                'de insistência.'
+            }
+          : await this.canal.enviar(aviso);
+
+      if (papeisComAlcada.length === 0) semAlcada += 1;
+      if (entrega.entregue) entregues += 1;
+
+      const ato: AtoDeAvisoDeAssurance = { aviso, canal: this.canal.id, entrega };
+      atos.push(ato);
+      this.ultimoAtoDeCaso.set(caso.id, ato);
+      this.deps.diario?.registrarAvisoDeAssurance(ato);
+      this.estadoDosCasos.set(caso.id, { degrau, ultimoEm: agora });
+    }
+
+    return {
+      avisos: [],
+      emergencias: [],
+      casos: atos,
+      entregues,
+      naoEntregues: atos.length - entregues,
+      semAlcada
+    };
+  }
+
+  /** O plantão chama sobre divergência física nesta instalação? */
+  get encaminhaCasos(): boolean {
+    return this.deps.encaminhamento !== undefined;
+  }
+
+  /** As linhas do último chamado de cada caso, de qualquer ciclo. */
+  linhasAcumuladasDeCasos(): readonly AvisoDeAssuranceNaTela[] {
+    return [...this.ultimoAtoDeCaso.values()].map((ato) => linhaDoAtoDeAssurance(ato));
   }
 
   /**

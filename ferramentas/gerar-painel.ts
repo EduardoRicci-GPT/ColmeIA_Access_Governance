@@ -139,6 +139,10 @@ const painel = montarPainel(bancada.mundo.topologia, relatorio.assurance, timeli
     avisos: avisosDaEmergencia(),
     ligada: true
   },
+  casos: {
+    chamados: bancada.plantao.linhasAcumuladasDeCasos(),
+    encaminha: bancada.plantao.encaminhaCasos
+  },
   explicacao,
   aprovacoes: {
   fila: bancada.gate.pendencias(),

@@ -38,7 +38,9 @@
 | 13c | Ratificação das matrizes por instalação | a de medicamentos deriva da Portaria SVS/MS 344/1998 sem estar nela; a de credenciais é palpite fundamentado. Enquanto não forem ratificadas, o efeito das duas é só exigir revisão |
 | 14 | Anti-passback e ocupação máxima | capacidades já previstas em `CapacidadeDeEndpoint`, sem motor correspondente |
 | 15 | Camada de IA sobre o assurance | resumo por público, agrupamento e priorização — sempre sobre dados determinísticos e sempre atrás da guarda de honestidade |
-| 16 | Notificação e plantão para o assurance | o ADR-0018 resolveu o chamado da APROVAÇÃO; divergência física, endpoint offline e caso de escalonamento continuam sem canal — e a porta `CanalDeAviso` já existe para ser reaproveitada |
+| 16 | ~~Notificação e plantão para o assurance~~ — **feito**, ADR-0026 | o caso de escalonamento virou a terceira espécie de aviso, com encaminhamento por TIPO (gateway é TI, revogação é segurança, cobertura é enfermagem) e insistência que só para no RECONHECIMENTO — o desfecho que a fila de aprovação não tem |
+| 16b | Prazo para o caso reconhecido e não resolvido | reconhecer encerra a cobrança; um caso assumido e esquecido para de chamar e fica aberto para sempre. Fechar esse laço exige decidir prazo aceitável — governança do hospital |
+| 16c | Tabela de encaminhamento versionada | como as matrizes de segregação (13b), a rota por tipo vive no código e deveria ter autor, data e tela, junto do item 8 |
 
 ## Explicitamente fora de escopo por ora
 

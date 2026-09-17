@@ -79,7 +79,14 @@ export type TipoDeEvento =
   // investigação lê "chamado não entregue" sem saber se ninguém foi acordado
   // para decidir ou se ninguém soube que a porta já tinha sido aberta.
   | 'BreakGlassNotified'
-  | 'BreakGlassNotificationUndelivered';
+  | 'BreakGlassNotificationUndelivered'
+  // O chamado sobre a divergência física. O achado central deste produto — a
+  // revogação que nunca chegou à porta — era descoberto, pontuado no score,
+  // exibido na tela e não chamava ninguém. Tipo próprio, e o não entregue
+  // também: "aberto há quarenta minutos e ninguém foi chamado" é a frase que
+  // uma investigação procura.
+  | 'EscalationNotified'
+  | 'EscalationNotificationUndelivered';
 
 export interface EventoDeDominio {
   id: string;

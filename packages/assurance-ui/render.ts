@@ -24,7 +24,11 @@
 import { EscalationCase } from '../dominio/escalonamento';
 import { CartaoDeEscopo, ItemDaFila, PainelDeAssurance } from './painel';
 import { EstadoDaPendencia, PendenciaDeAprovacao } from '../governanca/aprovacao';
-import { AvisoDeEmergenciaNaTela, AvisoNaTela } from '../governanca/plantao';
+import {
+  AvisoDeAssuranceNaTela,
+  AvisoDeEmergenciaNaTela,
+  AvisoNaTela
+} from '../governanca/plantao';
 import {
   LinhaDeEmergencia,
   LinhaDeHabilitacao,
@@ -484,7 +488,13 @@ function ocorrenciaHtml(item: ItemDaFila): string {
     </article>`;
 }
 
-function casoHtml(caso: EscalationCase): string {
+function casoHtml(caso: EscalationCase, chamado: AvisoDeAssuranceNaTela | undefined): string {
+  // A coluna do chamado é a que responde "alguém sabe disto?", e a ausência de
+  // linha é resposta também — por isso ela nunca fica em branco.
+  const aviso =
+    chamado === undefined
+      ? '<span class="leitura" data-l="DESCONHECIDO">ninguém foi chamado</span>'
+      : `<span class="leitura" data-l="${chamado.entregue ? 'SUSTENTA' : 'BLOQUEIA'}">${escapar(chamado.texto)}</span>`;
   return `
     <tr>
       <td class="mono">${escapar(caso.id)}</td>
@@ -493,6 +503,7 @@ function casoHtml(caso: EscalationCase): string {
       <td>${escapar(caso.endpointId ?? '—')}</td>
       <td>${escapar(caso.reason)}</td>
       <td class="mono tabular">${dataLegivel(caso.createdAt)}</td>
+      <td>${aviso}</td>
     </tr>`;
 }
 
@@ -633,12 +644,15 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
           )
           .join('');
 
+  const chamadoPorCaso = new Map(painel.chamadosDeCaso.map((linha) => [linha.casoId, linha]));
   const casos =
     painel.casos.length === 0
       ? '<p class="vazio">Nenhum caso aberto. O automatismo deu conta do ciclo.</p>'
       : `<div class="rolagem"><table>
-          <thead><tr><th>Caso</th><th>Tipo</th><th>Severidade</th><th>Endpoint</th><th>Motivo</th><th>Aberto em</th></tr></thead>
-          <tbody>${painel.casos.map(casoHtml).join('')}</tbody>
+          <thead><tr><th>Caso</th><th>Tipo</th><th>Severidade</th><th>Endpoint</th><th>Motivo</th><th>Aberto em</th><th>Chamado</th></tr></thead>
+          <tbody>${painel.casos
+            .map((caso) => casoHtml(caso, chamadoPorCaso.get(caso.id)))
+            .join('')}</tbody>
         </table></div>`;
 
   const timelines =
@@ -756,7 +770,14 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
     <ul class="resumos">${resumos}</ul>
 
     <h2>Escalonamento humano</h2>
-    <p class="subtitulo">Onde o automatismo terminou. Cada caso tem severidade determinística e evidência associada.</p>
+    <p class="subtitulo">Onde o automatismo terminou. Cada caso tem severidade determinística, evidência associada
+    e uma coluna que responde a pergunta seguinte: alguém foi chamado? A insistência só para quando alguém
+    RECONHECE o caso — reconhecer não é resolver, e é o ato humano que encerra a cobrança.</p>
+    ${
+      painel.avisoDeEncaminhamentoDesligado === null
+        ? ''
+        : `<p class="ressalva-linha" data-severidade="alta"><strong>Ninguém é chamado.</strong> ${escapar(painel.avisoDeEncaminhamentoDesligado)}</p>`
+    }
     ${casos}
 
     <h2>Timeline de auditoria</h2>
