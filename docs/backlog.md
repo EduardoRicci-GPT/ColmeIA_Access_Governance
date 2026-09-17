@@ -50,6 +50,17 @@
   existe no contrato; transformá-la em botão de tela exige política de
   auditoria própria que ainda não foi escrita.
 
+## Nascidas da pesquisa trazida em 17/09 (ver `docs/research/`)
+
+| # | Item | O que muda |
+|---|---|---|
+| 20 | `Competencia` como objeto de primeira classe | hoje o motor trata competência como papel. Um profissional pode ter o cargo e não ter a habilitação vigente — e o motor concederia. É a lacuna que mais distancia o código da formulação "por competência e responsabilidade vigente" |
+| 21 | `ResponsabilidadeTemporaria` + `EscopoDeDelegacao` + pedido de exceção | o hospital não funciona só pela escala do RH. O supervisor concede RESPONSABILIDADE, dentro da sua autoridade, com motivo e prazo; o motor deriva os acessos e os revoga no vencimento. Encaixa no gate, no plantão e no ciclo que já existem |
+| 22 | `Explicar acesso` — pessoa × recurso × instante | a explicação já existe em quatro lugares diferentes. Falta a pergunta única, e uma auditoria pergunta uma vez só |
+| 23 | Break-glass assistencial | emergência em faixa crítica hoje espera duas assinaturas. Privilégio temporário + justificativa + auditoria reforçada + revisão obrigatória depois |
+| 24 | Normalização de eventos de fabricante com proveniência | hoje cada adaptador entrega evento já no vocabulário do domínio; com três fabricantes reais, a tradução vira o lugar onde o significado se perde em silêncio |
+| 25 | Vínculo biométrico pseudonimizado | quando houver biometria, o subsistema recebe um identificador, não o RH da pessoa. A fronteira já existe para dado clínico (ADR-0007) e vale igual aqui |
+
 ## Nascidas da extração para repositório próprio
 
 | # | Item | O que muda |
