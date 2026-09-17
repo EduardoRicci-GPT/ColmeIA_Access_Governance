@@ -86,7 +86,14 @@ export type TipoDeEvento =
   // também: "aberto há quarenta minutos e ninguém foi chamado" é a frase que
   // uma investigação procura.
   | 'EscalationNotified'
-  | 'EscalationNotificationUndelivered';
+  | 'EscalationNotificationUndelivered'
+  // A parceria cognitiva. Os dois atos que ela produz são leitura, e por isso
+  // caem no corpo CONSULTIVO por omissão — que é o corpo certo, e o ADR-0003
+  // já o tinha reservado antes de haver o que pôr nele. O descarte é o elo que
+  // importa: é onde se lê que um modelo tentou introduzir número ou
+  // identificador que o material não tinha, e que o produto não aceitou.
+  | 'CognitiveReadingRouted'
+  | 'CognitiveProseDiscarded';
 
 export interface EventoDeDominio {
   id: string;

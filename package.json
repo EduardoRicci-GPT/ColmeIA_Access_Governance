@@ -11,7 +11,7 @@
     "lint": "tsc -p . --noEmit",
     "lint:estado": "node ferramentas/lint-estado-booleano.mjs",
     "espelho": "node ferramentas/verificar-espelho-mpeh.mjs",
-    "testar": "tsx testes/cenario-p1.ts && tsx testes/cenario-p2.ts && tsx testes/cenarios-hospitalares.ts && tsx testes/contrato-adapters.ts && tsx testes/health-score.ts && tsx testes/projecao-e-credenciais.ts && tsx testes/simulador.ts && tsx testes/honestidade-de-estado.ts && tsx testes/aprovacao-humana.ts && tsx testes/calibragem.ts && tsx testes/contratos-estruturais.ts && tsx testes/leitura-360.ts",
+    "testar": "tsx testes/cenario-p1.ts && tsx testes/cenario-p2.ts && tsx testes/cenarios-hospitalares.ts && tsx testes/contrato-adapters.ts && tsx testes/health-score.ts && tsx testes/projecao-e-credenciais.ts && tsx testes/simulador.ts && tsx testes/honestidade-de-estado.ts && tsx testes/aprovacao-humana.ts && tsx testes/calibragem.ts && tsx testes/contratos-estruturais.ts && tsx testes/leitura-360.ts && tsx testes/sinergentia.ts",
     "verificar": "npm run lint && npm run lint:tudo && npm run lint:estado && npm run espelho && npm run testar",
     "painel": "tsx ferramentas/gerar-painel.ts",
     "lint:tudo": "tsc -p tsconfig.tudo.json --noEmit"

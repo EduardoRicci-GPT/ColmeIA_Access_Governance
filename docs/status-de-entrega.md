@@ -122,9 +122,9 @@ Nenhum destes tocou hardware real. São reproduzidos de forma determinística pe
 
 ## 8. Bateria
 
-`npm run verificar` — **715 verificações, todas passando** neste repositório.
+`npm run verificar` — **756 verificações, todas passando** neste repositório.
 
-São 717 no checkout da Aletheia, e a diferença não é defeito: duas verificações
+São 758 no checkout da Aletheia, e a diferença não é defeito: duas verificações
 da prova diferencial do guardrail estrutural só rodam com o arquivo de origem em
 disco. Fora dali elas viram uma, que **registra não ter sido executada** em vez
 de sumir. O mesmo vale para a deriva do espelho MPE-H, que declara
@@ -144,6 +144,7 @@ de sumir. O mesmo vale para a deriva do espelho MPE-H, que declara
 | Calibragem dos pesos do Health Score | 24 |
 | Contratos estruturais do MPE-H (diferencial só com a origem em disco) | 47 |
 | Leitura 360° e a porta do R-VEP | 21 |
+| Sinergentia³: cascata de faculdades e ancoragem | 41 |
 
 Mais três gates: `acesso:lint` (pureza — sem DOM, sem Node, `strict`,
 `noUncheckedIndexedAccess`), `acesso:lint-estado` (o item 2 como condição de CI) e

@@ -32,6 +32,8 @@ import { ResponsabilidadeTemporaria } from '../governanca/responsabilidade';
 import { HabilitacaoDaPessoa } from '../governanca/competencia';
 import { QuebraDeVidro } from '../governanca/emergencia';
 import { ExplicacaoDeAcesso } from '../narrativa/explicacao';
+import { LeituraDePublico } from '../narrativa/leitura';
+import { SINERGENTIA } from '../sinergentia/identidade';
 import { descreverReconciliacao } from '../narrativa/honestidade';
 import { LinhaDoTempo } from './timeline';
 
@@ -183,6 +185,17 @@ export interface PainelDeAssurance {
   avisoDaEmergencia: string | null;
   /** Ressalvas das janelas de emergência em sombra. */
   avisosDaEmergencia: readonly string[];
+  /**
+   * O mesmo ciclo, lido para os quatro públicos.
+   *
+   * Cada leitura carrega a ROTA que a produziu — quem escreveu, quem declinou,
+   * quem foi descartado por inventar. Exibir o texto sem a rota transformaria a
+   * cascata em detalhe de implementação, e a pergunta "isto aqui foi escrito
+   * por um modelo?" é a primeira que um leitor de painel de auditoria faz.
+   */
+  leituras: readonly LeituraDePublico[];
+  /** O que a parceria cognitiva pode e não pode. Fica na tela, não no rodapé. */
+  avisoDaParceria: string;
   /**
    * A explicação completa do caso mais consequente deste ciclo.
    *
@@ -528,6 +541,7 @@ export interface SecoesDoPainel {
   habilitacoes?: readonly LinhaDeHabilitacao[];
   emergencias?: EmergenciasNaTela;
   casos?: CasosNaTela;
+  leituras?: readonly LeituraDePublico[];
   explicacao?: ExplicacaoDeAcesso;
 }
 
@@ -592,6 +606,11 @@ export function montarPainel(
     chamadosDaEmergencia: emergencias?.chamados ?? [],
     avisoDaEmergencia: avisoDaEmergencia(emergencias),
     avisosDaEmergencia: emergencias?.avisos ?? [],
+    leituras: secoes.leituras ?? [],
+    // Constante, e não condicional: os três "não" da parceria valem inclusive
+    // — e sobretudo — no ciclo em que nenhuma faculdade foi consultada, porque
+    // é aí que alguém poderia supor que a tela virou saída de modelo.
+    avisoDaParceria: SINERGENTIA.aviso,
     explicacao: secoes.explicacao ?? null
   };
 }

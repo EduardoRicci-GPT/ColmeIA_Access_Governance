@@ -22,6 +22,9 @@ import {
 } from '../packages/assurance-ui/painel';
 import { explicarAcesso } from '../packages/narrativa/explicacao';
 import { avisosDaEmergencia } from '../packages/governanca';
+import { lerParaTodosOsPublicos } from '../packages/narrativa/leitura';
+import { resumirDivergencias } from '../packages/narrativa/resumo';
+import { roteadorDeterministico } from '../testes/bancada';
 import { PolicyEngine, REGRAS_HOSPITALARES_BASE } from '../packages/policy-engine';
 import { renderizarPainel } from '../packages/assurance-ui/render';
 
@@ -125,7 +128,17 @@ const habilitacoes = bancada.mundo.pessoas.flatMap((pessoa) =>
   bancada.competencias.habilitacoesDe(pessoa.id)
 );
 
+// As quatro leituras do ciclo. A cascata desta execução tem só o degrau
+// determinístico: Segurança e TI são atendidas, Direção e Qualidade recebem o
+// material com o declínio declarado. É o retrato de uma instalação que não
+// contratou faculdade nenhuma — e o painel sai inteiro assim mesmo.
+const leituras = await lerParaTodosOsPublicos(
+  resumirDivergencias(bancada.mundo.topologia, relatorio.assurance.filaDeRisco),
+  roteadorDeterministico(bancada.relogio)
+);
+
 const painel = montarPainel(bancada.mundo.topologia, relatorio.assurance, timelines, {
+  leituras,
   responsabilidades: ordenarResponsabilidades(
     bancada.responsabilidades.todas(),
     bancada.relogio.agora()

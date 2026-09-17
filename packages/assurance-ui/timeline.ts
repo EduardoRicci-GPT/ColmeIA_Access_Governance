@@ -105,7 +105,9 @@ const ROTULO: Readonly<Record<TipoDeEvento, string>> = Object.freeze({
   BreakGlassNotified: 'Quem responde pela área foi informado da emergência',
   BreakGlassNotificationUndelivered: 'Emergência não alcançou quem responde pela área',
   EscalationNotified: 'Quem responde pelo caso foi chamado',
-  EscalationNotificationUndelivered: 'Caso aberto sem ninguém a chamar'
+  EscalationNotificationUndelivered: 'Caso aberto sem ninguém a chamar',
+  CognitiveReadingRouted: 'Leitura por público roteada na cascata de faculdades',
+  CognitiveProseDiscarded: 'Prosa de faculdade descartada por âncora inventada'
 });
 
 function horaCompleta(data: Date): string {

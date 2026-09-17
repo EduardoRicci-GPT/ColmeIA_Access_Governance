@@ -36,6 +36,7 @@ import {
   LinhaDeSegregacao
 } from './painel';
 import { ExplicacaoDeAcesso, LeituraDaCamada } from '../narrativa/explicacao';
+import { LeituraDePublico, Publico } from '../narrativa/leitura';
 import { LinhaDoTempo } from './timeline';
 
 function escapar(texto: string): string {
@@ -185,6 +186,8 @@ h2{font-size:13px; letter-spacing:.12em; text-transform:uppercase; font-weight:6
 .segregacao[data-origem="PAPEL_MAL_DESENHADO"]{border-left-color:var(--critico)}
 .segregacao h3{margin:0 0 6px; font-size:15.5px; font-weight:600}
 .segregacao .fonte{margin:8px 0 0; font-size:12px; color:var(--ink-muted)}
+.leitura-texto{white-space:pre-wrap; font-family:inherit; font-size:14px; line-height:1.55; margin:10px 0 0;
+  padding:10px 12px; background:var(--surface-2, rgba(127,127,127,.06)); border-radius:6px}
 .camada{display:grid; grid-template-columns:minmax(120px,168px) 92px 1fr; gap:10px; align-items:baseline;
   padding:8px 0; border-bottom:1px solid var(--line)}
 .camada:last-child{border-bottom:none}
@@ -507,6 +510,48 @@ function casoHtml(caso: EscalationCase, chamado: AvisoDeAssuranceNaTela | undefi
     </tr>`;
 }
 
+const ROTULO_DO_PUBLICO: Readonly<Record<Publico, string>> = {
+  SEGURANCA: 'Segurança',
+  TI: 'TI',
+  DIRECAO: 'Direção',
+  QUALIDADE: 'Qualidade'
+};
+
+/**
+ * A leitura de um público, com a rota à vista.
+ *
+ * O selo da origem vem antes do texto, e é deliberado: quem lê precisa saber
+ * quem escreveu ANTES de ler, não depois. Um parágrafo que já foi absorvido não
+ * se desfaz porque o rodapé informou a procedência.
+ */
+function leituraHtml(item: LeituraDePublico): string {
+  const { leitura } = item;
+  const selo = leitura.determinista
+    ? '<span class="leitura" data-l="SUSTENTA">núcleo determinístico</span>'
+    : `<span class="leitura" data-l="EXIGE_REVISAO">reescrito por ${escapar(leitura.faculdadeId)}</span>`;
+  const descartes = leitura.tentativas.filter((t) => t.desfecho === 'ANCORAGEM_REPROVOU');
+  const descarteHtml =
+    descartes.length === 0
+      ? ''
+      : `<p class="porque" data-severidade="alta">${descartes
+          .map((t) => escapar(t.ancoragem?.explicacao ?? 'Prosa descartada pela ancoragem.'))
+          .join(' ')}</p>`;
+  const rota = leitura.tentativas
+    .map(
+      (t) =>
+        `<span class="selo mono" style="font-size:11px">${escapar(t.faculdadeId)} · ${escapar(t.desfecho)}</span>`
+    )
+    .join(' ');
+  return `
+    <article class="segregacao" data-origem="${leitura.determinista ? 'ACUMULO_DE_PAPEIS' : 'PAPEL_MAL_DESENHADO'}">
+      <h3>${escapar(ROTULO_DO_PUBLICO[item.publico])}</h3>
+      <div class="selos">${selo}${rota}</div>
+      <pre class="leitura-texto">${escapar(leitura.texto)}</pre>
+      ${descarteHtml}
+      <p class="fonte">${escapar(leitura.explicacao)}</p>
+    </article>`;
+}
+
 function timelineHtml(linha: LinhaDoTempo): string {
   const selo =
     linha.integridade === undefined
@@ -644,6 +689,11 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
           )
           .join('');
 
+  const leituras =
+    painel.leituras.length === 0
+      ? '<p class="vazio">Nenhuma leitura por público foi produzida neste ciclo.</p>'
+      : painel.leituras.map(leituraHtml).join('');
+
   const chamadoPorCaso = new Map(painel.chamadosDeCaso.map((linha) => [linha.casoId, linha]));
   const casos =
     painel.casos.length === 0
@@ -768,6 +818,14 @@ export function renderizarPainel(painel: PainelDeAssurance, opcoes: OpcoesDeRend
     <h2>Leitura agregada</h2>
     <p class="subtitulo">Frases compostas a partir de dados determinísticos. Causa só é atribuída quando é dedutível.</p>
     <ul class="resumos">${resumos}</ul>
+
+    <h2>Leitura por público</h2>
+    <p class="subtitulo">O mesmo ciclo, escrito para quem opera, para quem responde pela instituição e para quem
+    responde pela norma. Cada leitura diz quem a escreveu ANTES do texto — quem lê precisa saber a procedência
+    antes de absorver o parágrafo, não depois. Onde o núcleo determinístico basta, nenhuma faculdade de
+    linguagem é consultada.</p>
+    <p class="ressalva-linha"><strong>Parceria cognitiva.</strong> ${escapar(painel.avisoDaParceria)}</p>
+    <div class="fila">${leituras}</div>
 
     <h2>Escalonamento humano</h2>
     <p class="subtitulo">Onde o automatismo terminou. Cada caso tem severidade determinística, evidência associada

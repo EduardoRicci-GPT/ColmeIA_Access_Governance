@@ -29,6 +29,14 @@ import {
   RegistroDeResponsabilidades
 } from '../packages/governanca';
 import { Endpoint, Gateway, NoDeHierarquia, ProviderConnection, Topologia } from '../packages/dominio/topologia';
+import {
+  Faculdade,
+  PedidoAFaculdade,
+  RespostaDaFaculdade,
+  RoteadorDeFaculdades
+} from '../packages/sinergentia';
+import { NucleoDeterministico } from '../packages/narrativa/leitura';
+import { Relogio } from '../packages/dominio/tempo';
 import { Person, Relationship, Role } from '../packages/dominio/entitlement';
 import { HabilitacaoDaPessoa } from '../packages/governanca';
 import {
@@ -289,6 +297,58 @@ export interface Bancada {
   entitlements: EntitlementsEmMemoria;
   syncJobs: SyncJobsEmMemoria;
   mundo: MundoLogico;
+}
+
+/**
+ * Faculdade de bancada: reescreve sem inventar, ou inventa de propósito.
+ *
+ * As duas metades são necessárias. A primeira prova que a cascata entrega prosa
+ * quando ela é legítima; a segunda prova que a guarda descarta quando não é — e
+ * uma guarda sem teste que a veja reprovar é uma guarda que ninguém sabe se
+ * funciona.
+ */
+export class FaculdadeDeBancada implements Faculdade {
+  readonly escola = 'doadora' as const;
+  readonly protocolo = 'openai-chat' as const;
+  readonly tarefas = ['leitura_por_publico', 'sintese_curta'] as const;
+  readonly recebidos: PedidoAFaculdade[] = [];
+
+  constructor(
+    readonly id: string,
+    readonly nome: string,
+    readonly local: boolean,
+    private readonly escrever: (pedido: PedidoAFaculdade) => RespostaDaFaculdade | Error
+  ) {}
+
+  async responder(pedido: PedidoAFaculdade): Promise<RespostaDaFaculdade> {
+    this.recebidos.push(pedido);
+    const saida = this.escrever(pedido);
+    if (saida instanceof Error) throw saida;
+    return saida;
+  }
+}
+
+/**
+ * O roteador da bancada: só o degrau zero.
+ *
+ * É o padrão de uma instalação que não contratou faculdade nenhuma — e o
+ * produto tem de funcionar inteiro assim. Os cenários que exercitam a cascata
+ * montam o roteador deles com as faculdades que querem provar.
+ */
+export function roteadorDeterministico(relogio: Relogio): RoteadorDeFaculdades {
+  return new RoteadorDeFaculdades(
+    [
+      {
+        faculdade: new NucleoDeterministico(),
+        degrau: 0,
+        // Zero por construção: o núcleo não gera frase nova, então não tem como
+        // inventar âncora. Não é mérito dele — é o que ele é.
+        taxaDeFabricacao: 0,
+        prosasVerificadas: 0
+      }
+    ],
+    relogio
+  );
 }
 
 export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<typeof SimuladorDeMundoFisico.prototype.aplicar>[0] } = {}): Bancada {
