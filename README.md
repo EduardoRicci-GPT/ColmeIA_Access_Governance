@@ -37,7 +37,7 @@ Se o software não representa essa diferença, a arquitetura está incompleta.
 | **Guardrail estrutural** | porte com prova diferencial: esta política concede acesso, ou impõe obediência? |
 | **R-VEP** | canal profundo, por **porta** — não copiado, porque exige Python e 350 ms |
 
-A cópia é verificada por `npm run acesso:espelho`: editar o espelho quebra a
+A cópia é verificada por `npm run espelho`: editar o espelho quebra a
 bateria, e a deriva em relação à origem é relatada.
 
 ## Os quatro motores
@@ -80,7 +80,6 @@ mundo físico atravessa a guarda de honestidade antes de chegar a uma pessoa.
 ## Estrutura
 
 ```
-colmeia-acesso/
   packages/
     mpeh-kernel/                      CÓPIA SELADA: Ledger · HumanGate · Calibration
     auditoria/                        trilha em cadeia + separação de corpos (ADR-0003)
@@ -101,7 +100,7 @@ colmeia-acesso/
     persistencia/                     esquema SQL + repositórios em memória
     narrativa/                        guarda de honestidade + resumo operacional
     assurance-ui/                     view-model, timeline e renderizador do painel
-  testes/                             P1, P2, H7–H10 e as demais suítes
+  testes/                             P1, P2, H7–H11 e as demais suítes
   ferramentas/                        lint de estado booleano, gerador do painel
   docs/                               ADRs, análise de impacto, adapters, backlog, status
 ```
@@ -109,17 +108,26 @@ colmeia-acesso/
 ## Como rodar
 
 ```bash
-npm run acesso:verificar    # pureza + lint de estado + espelho + 380 verificações
-npm run acesso:painel       # gera .saida/painel-access-assurance.html
+npm install
+npm run verificar    # pureza + lint amplo + lint de estado + espelho + 522 verificações
+npm run painel       # gera .saida/painel-access-assurance.html
 ```
 
 Suítes individualmente:
 
 ```bash
-npx tsx colmeia-acesso/testes/cenario-p1.ts             # divergência física
-npx tsx colmeia-acesso/testes/cenario-p2.ts             # telemetria de latência
-npx tsx colmeia-acesso/testes/cenarios-hospitalares.ts  # H7–H10
+npx tsx testes/cenario-p1.ts             # divergência física
+npx tsx testes/cenario-p2.ts             # telemetria de latência
+npx tsx testes/cenarios-hospitalares.ts  # H7–H11
 ```
+
+**Dois projetos TypeScript, de propósito.** `tsconfig.json` prova a PUREZA do
+núcleo — sem DOM, sem tipos de Node, só `packages/**` — porque estes motores
+precisam rodar no servidor, no navegador e no gateway de borda. `tsconfig.tudo.json`
+cobre `testes/` e `ferramentas/`, que leem disco e devem. O segundo existe por
+um motivo concreto: uma asserção de teste comparava um campo inexistente e
+passava afirmando nada, e quem a pegou foi o `tsc` do repositório da Aletheia,
+por acidente de configuração. Fora dali, ninguém pegaria.
 
 ## Estado da entrega
 
@@ -144,5 +152,39 @@ Detalhamento completo, com riscos restantes: [`docs/status-de-entrega.md`](docs/
 | [`docs/analise-de-impacto.md`](docs/analise-de-impacto.md) | o que a atualização muda em cada camada, e os riscos de arquitetura |
 | [`docs/status-de-entrega.md`](docs/status-de-entrega.md) | classificação do item 45 e riscos restantes |
 | [`docs/backlog.md`](docs/backlog.md) | o que destrava o próximo passo |
-| [`docs/adr/`](docs/adr/) | quinze decisões registradas, cinco delas nascidas de defeitos encontrados na própria bateria |
+| [`docs/adr/`](docs/adr/) | dezenove decisões registradas, sete delas nascidas de defeitos encontrados na própria implementação |
 | [`docs/adapters/`](docs/adapters/) | TTLock, Control iD e Seam: o que existe, o que falta e por quê |
+
+## Procedência, e o que a extração custou
+
+Este produto nasceu dentro do repositório da Aletheia, como subárvore
+`colmeia-acesso/`, e foi extraído para cá com o histórico preservado — os
+commits que aparecem no `git log` são os originais, com os caminhos reescritos
+para a raiz.
+
+A razão da extração é a mesma que justificou copiar o kernel em vez de importá-lo:
+**são dois produtos com propósitos distintos.** A Aletheia analisa material da
+internet; isto governa portas de hospital. Enquanto conviviam no mesmo
+repositório, o `tsc` da raiz da Aletheia — sem `include` declarado — compilava
+108 arquivos desta subárvore, e um erro de tipo aqui derrubava o gate de lá.
+Em execução os dois nunca se tocaram: nenhum import atravessou em nenhum
+sentido, e o bundle da Aletheia jamais carregou uma linha daqui. O acoplamento
+era de verificação, e era real.
+
+**Duas capacidades degradaram na mudança, e as duas se declaram:**
+
+1. **Deriva do espelho MPE-H.** `npm run espelho` confere cada arquivo contra o
+   sha256 do `MPEH_MANIFEST.json` — isso continua valendo, e editar a cópia
+   ainda quebra a bateria. O que ele não consegue mais é comparar com a origem
+   viva: sem o checkout da Aletheia ao lado, a saída passa a dizer *"origem não
+   está neste checkout: deriva não verificada"*. A origem pode avançar sem que
+   ninguém aqui note.
+
+2. **Prova diferencial do guardrail estrutural.** O porte de
+   `guardrailEstrutural.ts` era conferido rodando o mesmo corpus contra o
+   arquivo original e exigindo saída idêntica. Fora do repositório da Aletheia,
+   as três verificações viram uma, que registra não ter sido executada.
+
+Nenhuma das duas foi silenciada, e nenhuma foi fingida de verde. A restauração
+possível — congelar corpus e saídas esperadas num artefato selado, como o
+manifesto já faz com os hashes — está no backlog.

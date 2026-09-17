@@ -1,0 +1,21 @@
+{
+  "//": [
+    "PROJETO AMPLO — ferramentas e testes, que leem disco e devem.",
+    "",
+    "O tsconfig.json da raiz prova a PUREZA do núcleo: sem DOM, sem tipos de",
+    "Node, e inclui só packages/**. Este aqui existe porque um erro de tipo em",
+    "testes/ ou ferramentas/ não era visto por nenhum gate — e um teste que não",
+    "compila é um teste que pode estar afirmando nada.",
+    "",
+    "Foi exatamente o que aconteceu: uma asserção comparava um campo inexistente",
+    "e passava vazia. Quem a pegou foi o tsc da Aletheia, por acidente de",
+    "configuração. Fora daquele repositório, ninguém pegaria."
+  ],
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "skipLibCheck": true,
+    "noUnusedLocals": false
+  },
+  "include": ["packages/**/*.ts", "testes/**/*.ts", "ferramentas/**/*.ts"]
+}

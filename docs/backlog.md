@@ -50,6 +50,14 @@
   existe no contrato; transformá-la em botão de tela exige política de
   auditoria própria que ainda não foi escrita.
 
+## Nascidas da extração para repositório próprio
+
+| # | Item | O que muda |
+|---|---|---|
+| 17 | Corpus selado para a prova diferencial do guardrail | fora do repositório da Aletheia, a prova cai de 3 verificações para 1 que declara não ter rodado. Congelar corpus e saídas esperadas num artefato com hash — como o `MPEH_MANIFEST.json` já faz — devolve a prova sem exigir o checkout da origem |
+| 18 | Aviso de deriva do espelho sem a origem em disco | `npm run espelho` confere a integridade da cópia, mas não a deriva: a origem pode avançar sem que ninguém note. Uma checagem que leia o commit da origem pela API do GitHub resolveria, ao custo de uma dependência de rede num gate hoje offline |
+| 19 | CI própria | o repositório não tem workflow. `npm run verificar` roda à mão, e a Aletheia deixou de compilar esta árvore por acidente de configuração — o que era acoplamento indevido, mas também era o único gate automático que existia |
+
 ## Dívidas técnicas conhecidas
 
 | Dívida | Onde | Por que foi aceita |

@@ -1,0 +1,24 @@
+{
+  "name": "colmeia-access-governance",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Governança de acesso para unidades de saúde: estado lógico × estado físico, quatro motores determinísticos e kernel MPE-H por cópia selada.",
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "scripts": {
+    "lint": "tsc -p . --noEmit",
+    "lint:estado": "node ferramentas/lint-estado-booleano.mjs",
+    "espelho": "node ferramentas/verificar-espelho-mpeh.mjs",
+    "testar": "tsx testes/cenario-p1.ts && tsx testes/cenario-p2.ts && tsx testes/cenarios-hospitalares.ts && tsx testes/contrato-adapters.ts && tsx testes/health-score.ts && tsx testes/projecao-e-credenciais.ts && tsx testes/simulador.ts && tsx testes/honestidade-de-estado.ts && tsx testes/aprovacao-humana.ts && tsx testes/calibragem.ts && tsx testes/contratos-estruturais.ts && tsx testes/leitura-360.ts",
+    "verificar": "npm run lint && npm run lint:tudo && npm run lint:estado && npm run espelho && npm run testar",
+    "painel": "tsx ferramentas/gerar-painel.ts",
+    "lint:tudo": "tsc -p tsconfig.tudo.json --noEmit"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "@types/node": "^22.14.0"
+  }
+}
