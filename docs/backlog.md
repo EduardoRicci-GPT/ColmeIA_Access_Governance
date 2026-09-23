@@ -99,3 +99,32 @@
 | Índice de auditoria sem paginação | `IndiceDeAuditoria` | volume real ainda desconhecido; paginação sem medida seria palpite |
 | `MockAccessProvider.agoraDaUltimaOperacao()` deriva o tempo da telemetria | `packages/adapters/mock` | evita injetar relógio no adaptador; funciona porque o simulador é determinístico, mas é uma amarração que um adaptador real não deve copiar |
 | Resumo operacional agrupa apenas por zona | `packages/narrativa/resumo.ts` | agrupar por causa raiz exige o grafo de dependência endpoint→gateway→provedor completo, que só a integração real vai validar |
+
+
+## Decisões consolidadas em 20–23/09/2026
+
+> Estes itens nasceram após o último ciclo de código. São backlog formal, não
+> funcionalidades implementadas. A ordem abaixo preserva dependências.
+
+| # | Item | O que muda |
+|---|---|---|
+| 26 | Operational Presence Session | o registro de ponto deixa de ser apenas evento administrativo e passa a abrir uma sessão operacional contextualizada por vínculo, escala, unidade, setor, horário e responsabilidade |
+| 26b | Encerramento e reconciliação da sessão | define como saída, troca de setor, ausência, prorrogação de plantão e falha de ponto encerram ou recalculam direitos |
+| 27 | Dupla checagem invisível | combina credencial com verificação 1:1 quando aplicável; baixa confiança abre revisão humana sem produzir acusação automática |
+| 27b | Fluxo de pacientes, acompanhantes e visitantes | credenciais provisórias com finalidade, vínculo, janela e expiração explícitos |
+| 28 | AccessSubject | generaliza Person para sujeito humano ou não humano sem quebrar o domínio já existente |
+| 28b | Grant por missão para entidades não humanas | robô/AMR/agente de serviço recebe direito por missão, rota, tempo, responsabilidade, política e confiança; o direito expira com a missão |
+| 29 | DeviceTrustAssessment | separa “suporta protocolo” de “é confiável agora”, incorporando postura, vulnerabilidade, patch, exposição, integridade e proveniência |
+| 29b | Eventos de confiança do dispositivo | cria DeviceTrustDegraded, DeviceTrustRestored e SecurityReviewRequired e liga os eventos ao assurance |
+| 30 | Security Sentinel | especialista residente correlaciona eventos físicos e digitais, produz relatório e chama TI quando houver risco relevante |
+| 30b | Governança de aprendizado de ameaça | proíbe autoalteração de defesa a partir de ataque observado; exige hipótese, teste, validação e aprovação humana antes de promover mudança |
+| 30c | Histórico longitudinal de incidentes | cria base para tendência, recorrência, superfície atacada e efetividade de resposta sem transformar observação em julgamento automático |
+| 31 | Governança de egresso da Sinergentia | antes de qualquer faculdade remota: recorte mínimo, custo estimado, HumanGate quando necessário e registro do que saiu e do que voltou |
+| 32 | Piloto hospitalar controlado | valida conjuntamente Facilities, Segurança, TI e Qualidade, depois de persistência, hardware e canais reais mínimos |
+
+### Sequência de implementação recomendada
+
+**PostgreSQL → RH/RBAC/escala → bancada de hardware → canais reais → Operational Presence Session → AccessSubject → Device Trust → Security Sentinel → piloto controlado.**
+
+A sequência evita construir Sentinel sobre telemetria ainda simulada ou conceder
+sessões dinâmicas sobre persistência volátil.
