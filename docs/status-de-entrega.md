@@ -14,6 +14,7 @@
 | `INTERFACE_READY` | contrato e tradução prontos; a integração externa não existe |
 | `REQUIRES_VENDOR_INTEGRATION` | bloqueado por documentação/credencial do fabricante |
 | `RESEARCH_REQUIRED` | a decisão de integrar ainda depende de pesquisa |
+| `ARCHITECTURE_APPROVED` | decisão de arquitetura consolidada, ainda sem código de produção correspondente |
 
 ---
 
@@ -210,3 +211,33 @@ Mais três gates: `acesso:lint` (pureza — sem DOM, sem Node, `strict`,
 10. **A tela é mínima.** Foi desenhada para provar que o score abre e que a fila
     ordena por risco. Não foi validada com Facilities, Segurança, TI ou
     Qualidade — que são quatro públicos com necessidades diferentes.
+
+
+## 10. Evolução aprovada em 23/09/2026 — ainda não implementada
+
+Esta seção registra decisões posteriores ao último ciclo de código. Elas entram
+no histórico oficial do projeto, mas **não alteram a contagem de 756 verificações**
+e não podem ser apresentadas como funcionalidade disponível.
+
+| Componente | Status | Observação |
+|---|---|---|
+| Operational Presence Session | `ARCHITECTURE_APPROVED` | ponto/entrada inicia sessão contextualizada por vínculo, escala, unidade, setor, horário e responsabilidade |
+| Fluxo temporário de paciente/acompanhante/visitante | `ARCHITECTURE_APPROVED` | credencial temporária com prazo e finalidade; biometria continua como método de credencial |
+| Dupla checagem invisível | `ARCHITECTURE_APPROVED` | credencial + verificação 1:1 quando aplicável; baixa confiança produz revisão humana, não acusação automática |
+| AccessSubject | `ARCHITECTURE_APPROVED` | generaliza o sujeito de acesso para pessoas, equipamentos, robôs, AMRs, agentes digitais e identidades de serviço |
+| Grants por missão | `ARCHITECTURE_APPROVED` | entidade não humana recebe direito contextual e temporário; encerrada a missão, o grant expira |
+| DeviceTrustAssessment | `ARCHITECTURE_APPROVED` | separa capacidade técnica de confiança operacional; prevê postura, vulnerabilidade, patch, exposição e integridade |
+| Eventos de Device Trust | `ARCHITECTURE_APPROVED` | DeviceTrustDegraded, DeviceTrustRestored e SecurityReviewRequired |
+| Security Sentinel | `ARCHITECTURE_APPROVED` | especialista residente para observação/correlação/escalonamento de risco, sem decisão autônoma sobre política de defesa |
+| Governança de aprendizado de ameaça | `ARCHITECTURE_APPROVED` | observação → incidente → análise → hipótese → teste → validação → aprovação humana → mudança controlada |
+
+### Dependências para implementação
+
+1. Adaptador PostgreSQL e persistência de sessão/plantão.
+2. Porta de RH/RBAC/escala com identidade autenticada do host.
+3. Definição de contrato para evento de ponto e encerramento de presença.
+4. Modelo de AccessSubject e migração compatível com Person existente.
+5. Modelo de Device Trust separado de CapacidadeDeEndpoint.
+6. Canal real do Sentinel para TI e trilha de incidentes.
+7. Bancada com hardware real antes de promover qualquer evidência física de SIMULATED.
+8. Governança de egresso da Sinergentia antes de faculdade remota em ambiente institucional.
