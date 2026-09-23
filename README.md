@@ -109,7 +109,7 @@ mundo físico atravessa a guarda de honestidade antes de chegar a uma pessoa.
 
 ```bash
 npm install
-npm run verificar    # pureza + lint amplo + lint de estado + espelho + 522 verificações
+npm run verificar    # pureza + lint amplo + lint de estado + espelho + 756 verificações
 npm run painel       # gera .saida/painel-access-assurance.html
 ```
 
@@ -128,6 +128,27 @@ cobre `testes/` e `ferramentas/`, que leem disco e devem. O segundo existe por
 um motivo concreto: uma asserção de teste comparava um campo inexistente e
 passava afirmando nada, e quem a pegou foi o `tsc` do repositório da Aletheia,
 por acidente de configuração. Fora dali, ninguém pegaria.
+
+## Evolução aprovada em 23/09/2026 — ainda não implementada
+
+Após o último ciclo de código, a arquitetura foi ampliada em cinco frentes que
+**não devem ser confundidas com estado implementado**:
+
+- **Operational Presence Session:** o ponto/entrada inicia uma sessão contextualizada
+  por vínculo, escala, unidade, setor, horário e responsabilidade.
+- **Dupla checagem invisível e temporários:** credencial + verificação 1:1 quando
+  aplicável, com baixa confiança encaminhada a revisão humana; pacientes,
+  acompanhantes, visitantes e terceiros recebem direitos temporários e finalísticos.
+- **AccessSubject:** generalização do sujeito de acesso para pessoas, equipamentos,
+  robôs, AMRs, agentes digitais e identidades de serviço; capacidade não implica autoridade.
+- **Device Trust:** confiança do dispositivo separada de capacidade/protocolo,
+  contemplando postura, vulnerabilidade, patch, exposição e integridade.
+- **Security Sentinel:** especialista residente que observa, correlaciona e escala
+  riscos, sem alterar autonomamente a política de defesa. O ciclo aprovado é
+  observação → incidente → hipótese → teste → validação → aprovação humana → mudança.
+
+O detalhamento e o corte entre implementado e aprovado estão no
+[docs/dossie-desenvolvimento-2026-09-23.md](docs/dossie-desenvolvimento-2026-09-23.md).
 
 ## Estado da entrega
 
@@ -149,10 +170,11 @@ Detalhamento completo, com riscos restantes: [`docs/status-de-entrega.md`](docs/
 
 | Documento | Assunto |
 |---|---|
+| [`docs/dossie-desenvolvimento-2026-09-23.md`](docs/dossie-desenvolvimento-2026-09-23.md) | consolidação técnica, maturidade atual e evolução aprovada após 18/09 |
 | [`docs/analise-de-impacto.md`](docs/analise-de-impacto.md) | o que a atualização muda em cada camada, e os riscos de arquitetura |
 | [`docs/status-de-entrega.md`](docs/status-de-entrega.md) | classificação do item 45 e riscos restantes |
 | [`docs/backlog.md`](docs/backlog.md) | o que destrava o próximo passo |
-| [`docs/adr/`](docs/adr/) | dezenove decisões registradas, sete delas nascidas de defeitos encontrados na própria implementação |
+| [`docs/adr/`](docs/adr/) | 27 decisões arquiteturais registradas |
 | [`docs/adapters/`](docs/adapters/) | TTLock, Control iD e Seam: o que existe, o que falta e por quê |
 
 ## Procedência, e o que a extração custou
