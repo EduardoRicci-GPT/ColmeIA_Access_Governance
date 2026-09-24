@@ -24,7 +24,7 @@
 |---|---|---|
 | Ledger (cadeia encadeada por hash) | `IMPLEMENTED` | cópia selada; relógio injetado, cadeia reproduzível |
 | HumanGate (aprovação ligada ao conteúdo) | `IMPLEMENTED` | cópia selada; `AutoridadeDoHost` provida pelo host |
-| Calibration (estatuto de constante) | `IMPLEMENTED` | cópia selada; os doze pesos deste produto em `SOMBRA` |
+| Calibration (estatuto de constante) | `IMPLEMENTED` | cópia selada; os **catorze** pesos deste produto em `SOMBRA` — eram doze até o ADR-0025 acrescentar os dois da emergência |
 | Verificador do espelho | `IMPLEMENTED` | integridade da cópia + deriva relatada em relação à origem |
 | Guardrail estrutural | `IMPLEMENTED` (porte) | prova diferencial contra a origem, 8 textos |
 | R-VEP (canal lexical) | `INTERFACE_READY` | porta `LeitorDeContexto360`; exige Python e ~350 ms, não entra no caminho da porta |
