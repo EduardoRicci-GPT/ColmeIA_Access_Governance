@@ -55,7 +55,18 @@ const indicadores: IndicadoresDeAssurance = {
   revisoesDeEmergenciaPendentes: 0,
   pesoDeRevisoesDeEmergencia: 0,
   repeticoesDeEmergencia: 0,
-  zonasComRepeticao: []
+  zonasComRepeticao: [],
+  // Os três indicadores do consolidado de outubro entram zerados pela mesma
+  // razão: o exemplo do item 7 não tem janela residual descoberta, não tem
+  // vínculo semântico pendente e não tem incidente físico — e o 87 continua 87.
+  // É a verificação que importa aqui: acrescentar leitura não move número.
+  janelasResiduaisDescobertas: 0,
+  pesoDeJanelasResiduais: 0,
+  credenciaisSemCaminhoDeVolta: 0,
+  vinculosNaoVerificados: 0,
+  vinculosDivergentes: 0,
+  incidentesSemAutoridade: 0,
+  pesoDeIncidentesSemAutoridade: 0
 };
 
 grupo('Item 7 · o exemplo da especificação, reproduzido');

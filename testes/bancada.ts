@@ -49,6 +49,23 @@ import { PhysicalStateReconciliationEngine } from '../packages/physical-state-re
 import { ObservabilityAssuranceEngine } from '../packages/observability-assurance';
 import { MockAccessProvider, SimuladorDeMundoFisico } from '../packages/adapters/mock';
 import { CicloDeGovernanca } from '../packages/orquestracao';
+import { AtendenteDeAcesso } from '../packages/orquestracao/decisao-online';
+import {
+  CaminhoDeAcesso,
+  CaminhosEmMemoria,
+  RestricoesLocaisEmMemoria,
+  VinculoSemanticoFisico,
+  VinculosEmMemoria
+} from '../packages/dominio';
+import {
+  ConferenciaFederadaEmMemoria,
+  DelegacaoDeAutoridade,
+  DominioDeAutoridade,
+  MesaDeIntervencao,
+  RegistroDeIncidentesFisicos,
+  RevogabilidadeEmMemoria,
+  Tenant
+} from '../packages/governanca';
 import {
   EntitlementsEmMemoria,
   RegistrosDeAcessoEmMemoria,
@@ -129,6 +146,196 @@ export const CONEXOES: ProviderConnection[] = [
     referenciaDeCredencial: 'cofre://mock/conta-de-testes'
   }
 ];
+
+// ---------------------------------------------------------------------------
+// O QUE O CONSOLIDADO DE OUTUBRO ACRESCENTOU À BANCADA
+//
+// Os quatro blocos abaixo existem para que os deltas D-051 a D-057 tenham, na
+// bancada, quem os chame — e não apenas um teste que os exercite de lado. É a
+// regra do D-022 aplicada no mesmo dia em que a capacidade nasce, em vez de
+// seis meses depois.
+//
+// Os valores são escolhidos para serem VERDADEIROS sobre um hospital, não para
+// serem convenientes: o cofre de psicotrópicos tem chave mecânica, as portas da
+// UTI têm barra antipânico, e isso faz a leitura de exposição dizer coisas
+// incômodas sobre esta bancada. Dizer coisas incômodas sobre um hospital real é
+// o produto funcionando.
+// ---------------------------------------------------------------------------
+
+/**
+ * Os caminhos de acesso levantados em campo (D-051).
+ *
+ * Note o que o levantamento revela, e que nenhum cadastro de credencial
+ * revelaria: o cofre de psicotrópicos é CRITICAL, tem biometria, e tem uma
+ * chave mecânica — porque toda farmácia hospitalar tem, para o dia em que a
+ * eletrônica falhar com um paciente esperando analgesia. A leitura de exposição
+ * fica INACEITÁVEL, e está certa: a biometria descreve como entram as pessoas
+ * honestas.
+ *
+ * As portas da UTI e do centro cirúrgico têm barra antipânico. Também FRACA
+ * para o controle de acesso, e inegociável para a segurança de vida — é o caso
+ * que o módulo trata com `EXIGE_COMPENSACAO` em vez de recusa, porque não há
+ * aqui nada a corrigir, e há muito a vigiar.
+ */
+export const CAMINHOS_DA_BANCADA: readonly CaminhoDeAcesso[] = Object.freeze([
+  {
+    endpointId: 'ep-seg-1',
+    meios: [
+      { especie: 'CREDENCIAL', metodo: 'BIOMETRIC' },
+      { especie: 'CREDENCIAL', metodo: 'CARD' },
+      { especie: 'BYPASS', forma: 'CHAVE_MECANICA' }
+    ],
+    procedencia: 'LEVANTAMENTO_EM_CAMPO',
+    levantadoPor: 'engenharia-clinica',
+    observacao: 'Chave mecânica mantida no cofre da farmácia, com livro de retirada.'
+  },
+  {
+    endpointId: 'ep-uti-1',
+    meios: [
+      { especie: 'CREDENCIAL', metodo: 'CARD' },
+      { especie: 'BYPASS', forma: 'BARRA_ANTIPANICO' }
+    ],
+    procedencia: 'LEVANTAMENTO_EM_CAMPO'
+  },
+  {
+    endpointId: 'ep-uti-2',
+    meios: [
+      { especie: 'CREDENCIAL', metodo: 'CARD' },
+      { especie: 'BYPASS', forma: 'BARRA_ANTIPANICO' }
+    ],
+    procedencia: 'LEVANTAMENTO_EM_CAMPO'
+  },
+  {
+    endpointId: 'ep-cc-1',
+    meios: [
+      { especie: 'CREDENCIAL', metodo: 'CARD' },
+      { especie: 'BYPASS', forma: 'BARRA_ANTIPANICO' }
+    ],
+    procedencia: 'LEVANTAMENTO_EM_CAMPO'
+  },
+  {
+    endpointId: 'ep-farm-1',
+    meios: [
+      { especie: 'CREDENCIAL', metodo: 'CARD' },
+      { especie: 'BYPASS', forma: 'CHAVE_MECANICA' }
+    ],
+    procedencia: 'LEVANTAMENTO_EM_CAMPO'
+  },
+  {
+    endpointId: 'ep-farm-2',
+    meios: [
+      { especie: 'CREDENCIAL', metodo: 'CARD' },
+      { especie: 'BYPASS', forma: 'CHAVE_MECANICA' }
+    ],
+    procedencia: 'LEVANTAMENTO_EM_CAMPO'
+  },
+  {
+    endpointId: 'ep-dc-1',
+    meios: [
+      { especie: 'CREDENCIAL', metodo: 'BIOMETRIC' },
+      { especie: 'CREDENCIAL', metodo: 'CARD' }
+    ],
+    procedencia: 'LEVANTAMENTO_EM_CAMPO'
+  },
+  {
+    endpointId: 'ep-adm-1',
+    meios: [
+      { especie: 'CREDENCIAL', metodo: 'CARD' },
+      { especie: 'BYPASS', forma: 'BOTOEIRA_INTERNA' }
+    ],
+    procedencia: 'LEVANTAMENTO_EM_CAMPO'
+  },
+  {
+    endpointId: 'ep-adm-2',
+    meios: [
+      { especie: 'CREDENCIAL', metodo: 'CARD' },
+      { especie: 'BYPASS', forma: 'BOTOEIRA_INTERNA' }
+    ],
+    procedencia: 'LEVANTAMENTO_EM_CAMPO'
+  },
+  {
+    endpointId: 'ep-adm-3',
+    meios: [
+      { especie: 'CREDENCIAL', metodo: 'CARD' },
+      { especie: 'BYPASS', forma: 'BOTOEIRA_INTERNA' }
+    ],
+    procedencia: 'LEVANTAMENTO_EM_CAMPO'
+  }
+]);
+
+/**
+ * Os vínculos semânticos canal–recurso (D-052).
+ *
+ * Todos VERIFICADOS na versão 1 da configuração, com nome de quem esteve na
+ * porta — o estado em que uma instalação bem feita começa. Os cenários que
+ * precisam da divergência a produzem como ela acontece no mundo: avançando a
+ * versão, que é o que o painel sendo remexido faz.
+ */
+export function VINCULOS_DA_BANCADA(): VinculoSemanticoFisico[] {
+  return ENDPOINTS.map((endpoint, indice) => ({
+    id: `VINC-${endpoint.id}`,
+    endpointId: endpoint.id,
+    capacidade: 'REMOTE_REVOCATION' as const,
+    canal: {
+      controladorId: endpoint.gatewayId ?? 'gw-central',
+      especie: 'RELE' as const,
+      indice: String(indice + 1)
+    },
+    versao: 1,
+    estado: 'VERIFICADO' as const,
+    versaoVerificada: 1,
+    verificadoEm: new Date(INICIO),
+    verificadoPor: 'engenharia-clinica',
+    evidencia: `OS-2026-${String(indice + 1).padStart(3, '0')} — acionamento conferido no local`
+  }));
+}
+
+/**
+ * Os tenants comerciais e os domínios de autoridade institucional (D-057).
+ *
+ * `integra-sul` é a integradora que instalou e mantém as fechaduras dos dois
+ * hospitais. Ela vê inventário, saúde e chamados — e os domínios de autoridade
+ * abaixo não a mencionam, porque não pode mencioná-la: autoridade institucional
+ * não nasce de contrato de manutenção.
+ *
+ * `org-vale-verde` existe nesta bancada por um motivo só: provar que o papel não
+ * atravessa organização. A mesma pessoa, o mesmo vínculo, a mesma identidade —
+ * e nenhuma autoridade do outro lado.
+ */
+export const TENANTS_DA_BANCADA: readonly Tenant[] = Object.freeze([
+  {
+    id: 'tenant-integra-sul',
+    nome: 'Integra Sul Sistemas',
+    especie: 'INTEGRADORA',
+    organizacoesAtendidas: ['org-sinergentia', 'org-vale-verde']
+  }
+]);
+
+export const DOMINIOS_DE_AUTORIDADE: readonly DominioDeAutoridade[] = Object.freeze([
+  {
+    id: 'dom-aurora-seguranca',
+    organizationId: 'org-sinergentia',
+    unidadeIds: [],
+    papeisLocais: ['supervisao-de-seguranca', 'gerencia-de-facilities'],
+    relationshipIds: ['vin-rui']
+  },
+  {
+    id: 'dom-aurora-diretoria',
+    organizationId: 'org-sinergentia',
+    unidadeIds: [],
+    papeisLocais: ['diretoria-tecnica', 'diretoria-administrativa', 'engenharia-clinica'],
+    relationshipIds: ['vin-rita', 'vin-paulo']
+  },
+  {
+    id: 'dom-integra-sul',
+    organizationId: 'org-integra-sul',
+    unidadeIds: [],
+    papeisLocais: ['administracao-de-frota'],
+    relationshipIds: ['vin-ivo']
+  }
+]);
+
+export const DELEGACOES_DE_AUTORIDADE: readonly DelegacaoDeAutoridade[] = Object.freeze([]);
 
 export const PAPEIS: Role[] = [
   { id: 'role-enfermagem-uti', nome: 'Enfermagem UTI', zonasAutorizadas: ['z-uti'] },
@@ -296,6 +503,20 @@ export interface Bancada {
   registros: RegistrosDeAcessoEmMemoria;
   entitlements: EntitlementsEmMemoria;
   syncJobs: SyncJobsEmMemoria;
+  /** Os caminhos de acesso levantados (D-051). */
+  caminhos: CaminhosEmMemoria;
+  /** O que se sabe sobre revogar, por endpoint (D-055). */
+  revogabilidade: RevogabilidadeEmMemoria;
+  /** Os vínculos semânticos canal–recurso (D-052). */
+  vinculos: VinculosEmMemoria;
+  /** As restrições locais dos recursos (D-054). Nasce vazio. */
+  restricoes: RestricoesLocaisEmMemoria;
+  /** Os incidentes físicos (D-056). Nasce vazio. */
+  incidentes: RegistroDeIncidentesFisicos;
+  /** A mesa que autoriza intervenção, com conferência federada (D-056 + D-057). */
+  mesaDeIntervencao: MesaDeIntervencao;
+  /** O atendente da decisão de modo ACCESS — a porta online do ADR-0008. */
+  atendente: AtendenteDeAcesso;
   mundo: MundoLogico;
 }
 
@@ -430,6 +651,31 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     competencias
   );
 
+  // As seis portas do consolidado de outubro, montadas AQUI e não em cada
+  // cenário: é o que faz delas parte do sistema, e não de um teste.
+  const caminhos = new CaminhosEmMemoria(CAMINHOS_DA_BANCADA);
+  const vinculos = new VinculosEmMemoria(VINCULOS_DA_BANCADA());
+  const restricoes = new RestricoesLocaisEmMemoria();
+  const incidentes = new RegistroDeIncidentesFisicos();
+  // O MOCK revoga remotamente, confirma estado físico e tem gateway: é o
+  // melhor caso, e é deliberado que a bancada comece nele. Os cenários que
+  // precisam do caso ruim o declaram, como a vida declara.
+  const revogabilidade = new RevogabilidadeEmMemoria(
+    ENDPOINTS.map((endpoint) => ({
+      endpointId: endpoint.id,
+      revogacaoRemota: true,
+      confirmaEstadoFisico: true,
+      credenciaisOffline: true,
+      temCaminhoDeSincronizacao: endpoint.gatewayId !== undefined,
+      minutosTipicosDeSincronizacao: 5
+    }))
+  );
+  const mesaDeIntervencao = new MesaDeIntervencao(
+    autoridade,
+    new ConferenciaFederadaEmMemoria(DOMINIOS_DE_AUTORIDADE, DELEGACOES_DE_AUTORIDADE)
+  );
+  const atendente = new AtendenteDeAcesso(policy, relogio, false);
+
   const ciclo = new CicloDeGovernanca({
     relogio,
     entitlementEngine,
@@ -447,7 +693,14 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     diarioDeAprovacao: diario,
     // A MESMA lista que montou as regras. Passar outra criaria duas verdades
     // sobre o que é incompatível, e a tela discordaria da porta.
-    dominiosDeSegregacao: DOMINIOS_DE_SEGREGACAO_BASE
+    dominiosDeSegregacao: DOMINIOS_DE_SEGREGACAO_BASE,
+    // As quatro leituras de outubro chegam ao ciclo pelas portas do host.
+    // Ligá-las na bancada é o que impede que elas sejam capacidade correta sem
+    // chamador — e o que faz o Health Score desta bancada responder por elas.
+    revogabilidade,
+    caminhos,
+    vinculosSemanticos: vinculos,
+    incidentesFisicos: incidentes
   });
 
   const mundo: MundoLogico = {
@@ -469,7 +722,11 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     // O cofre de psicotrópicos é CRITICAL: a política exige aprovação humana,
     // e o gate exige DUAS pessoas distintas nessa faixa. A aprovação é aberta
     // e decidida em `aprovarCofre()`, contra o material selado.
-    aprovacoes: gate
+    aprovacoes: gate,
+    // Nasce vazio, e isso NÃO fecha porta nenhuma: é a única consulta deste
+    // mundo cuja ausência é otimista, pela razão escrita em
+    // `dominio/restricao-local.ts`.
+    restricoesLocais: restricoes
   };
 
   return {
@@ -490,6 +747,13 @@ export function montarBancada(opcoes: { inicio?: string; cenario?: Parameters<ty
     registros,
     entitlements,
     syncJobs,
+    caminhos,
+    revogabilidade,
+    vinculos,
+    restricoes,
+    incidentes,
+    mesaDeIntervencao,
+    atendente,
     mundo
   };
 }

@@ -93,7 +93,48 @@ export type TipoDeEvento =
   // importa: é onde se lê que um modelo tentou introduzir número ou
   // identificador que o material não tinha, e que o produto não aceitou.
   | 'CognitiveReadingRouted'
-  | 'CognitiveProseDiscarded';
+  | 'CognitiveProseDiscarded'
+  // D-051 e D-055, o instante da emissão. O produto decidia o direito com todo
+  // o rigor e materializava sem perguntar o que estava materializando: um PIN
+  // offline de noventa dias numa fechadura sem gateway encerra a discussão que
+  // a aprovação humana tinha acabado de ter. `CredentialIssuanceWithheld` é o
+  // elo que faltava — e ele é DIRETIVO, porque reter a emissão é decidir.
+  | 'AccessPathAssessed'
+  | 'CredentialIssuanceEvaluated'
+  | 'CredentialIssuanceWithheld'
+  // D-052. A confirmação do fabricante é sobre o CANAL; só o levantamento em
+  // campo é sobre a porta. O elo da divergência é o que permite a uma
+  // investigação distinguir "o equipamento confirmou" de "o equipamento
+  // confirmou a porta que a gente nomeou".
+  | 'SemanticBindingVerified'
+  | 'SemanticBindingDiverged'
+  // D-054. A restrição local é declarada por gente da unidade — chefia,
+  // controle de infecção, facilities — e por isso a declaração é HUMANA. A
+  // suspensão do exercício é leitura, e cai no consultivo: ela não revoga
+  // nada, e é essa a notícia que o elo precisa dar.
+  | 'LocalConstraintDeclared'
+  | 'LocalExerciseSuspended'
+  // D-053. O elo que importa é o segundo: registra que um identificador
+  // observado foi recusado como prova. Sem ele, a trilha de um portão com
+  // câmera não distingue "ninguém chegou" de "chegou uma placa que o produto
+  // não aceitou como credencial".
+  | 'ObservedIdentifierAsserted'
+  | 'ObservedIdentifierRejectedAsProof'
+  // D-056. Quatro atos, quatro elos: observar, avaliar, abrir e autorizar.
+  // Colapsá-los em um era o defeito; separá-los no ledger é o que torna
+  // auditável a diferença entre o sensor que relatou e a pessoa que decidiu.
+  | 'PhysicalObservationRecorded'
+  | 'PhysicalConditionAssessed'
+  | 'PhysicalIncidentOpened'
+  | 'InterventionRequested'
+  | 'InterventionAuthorized'
+  | 'InterventionDenied'
+  // D-057. A recusa de herança de autoridade é um ato DIRETIVO e precisa de
+  // elo próprio: num sistema multicliente, a pergunta da auditoria é "o
+  // administrador da integradora chegou a decidir algo aqui?", e a resposta só
+  // existe se a recusa tiver sido registrada.
+  | 'FederatedAuthorityDenied'
+  | 'TenantVisibilityLeakDetected';
 
 export interface EventoDeDominio {
   id: string;

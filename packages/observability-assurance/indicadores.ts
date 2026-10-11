@@ -14,6 +14,9 @@
 
 import { DiagnosticoDeLatencia } from '../dominio/telemetria';
 import { QuebraDeVidroProjetada } from '../dominio/emergencia';
+import { JanelaResidualProjetada } from '../dominio/revogabilidade';
+import { VinculoProjetado } from '../dominio/vinculo-semantico';
+import { IncidenteFisicoProjetado } from '../dominio/incidente';
 import { Endpoint, Gateway, ProviderConnection } from '../dominio/topologia';
 import { PhysicalReconciliationResult } from '../physical-state-reconciliation/tipos';
 
@@ -73,6 +76,47 @@ export interface IndicadoresDeAssurance {
   repeticoesDeEmergencia: number;
   /** Zonas do escopo em que houve repetição. É o que a leitura aponta. */
   zonasComRepeticao: readonly string[];
+
+  /**
+   * Credenciais vigentes cuja janela residual estourou o teto do recurso
+   * (D-055).
+   *
+   * É dívida de DESENHO, e não risco vivo: ninguém pediu a revogação ainda. A
+   * diferença com `pendingRevocations` é toda: lá, alguém mandou revogar e a
+   * porta continua abrindo; aqui, ninguém mandou nada, e a porta vai continuar
+   * abrindo quando mandarem. O peso respeita essa diferença.
+   */
+  janelasResiduaisDescobertas: number;
+  /** As mesmas, ponderadas pela criticidade do endpoint. */
+  pesoDeJanelasResiduais: number;
+  /** Credenciais sem término previsto e sem caminho de revogação. */
+  credenciaisSemCaminhoDeVolta: number;
+
+  /**
+   * Endpoints comandados cuja correspondência canal–recurso não está
+   * verificada (D-052).
+   *
+   * O indicador existe porque a alternativa — rebaixar a confiança de toda
+   * leitura de toda instalação sem cadastro de vínculos — deixaria o painel
+   * amarelo inteiro, e painel amarelo inteiro não é lido. O rebaixamento
+   * acontece por endpoint, onde há vínculo declarado; a cobrança do
+   * levantamento acontece aqui, com nome próprio.
+   */
+  vinculosNaoVerificados: number;
+  /** Os divergentes, contados à parte: aqueles alguém já conferiu e não bate. */
+  vinculosDivergentes: number;
+
+  /**
+   * Incidentes físicos em aberto que não chamaram ninguém (D-056).
+   *
+   * A sétima aparição do D-022 neste repositório, e a primeira que entra no
+   * número desde o primeiro dia da capacidade em vez de ser descoberta depois.
+   * Um incidente de severidade alta sobre rede de gases, aberto, com a lista de
+   * papéis encaminhados vazia, é o defeito inteiro em uma linha.
+   */
+  incidentesSemAutoridade: number;
+  /** Ponderados pela severidade do incidente, não pela criticidade do local. */
+  pesoDeIncidentesSemAutoridade: number;
 }
 
 export interface EntradaDeIndicadores {
@@ -95,10 +139,28 @@ export interface EntradaDeIndicadores {
   backlogDeEventos?: number;
   backlogDeSincronizacaoPorEndpoint?: ReadonlyMap<string, number>;
   bateriasCriticas?: number;
+  /**
+   * As janelas residuais do escopo, já projetadas e já comparadas ao teto do
+   * recurso. A comparação fica com quem tem o registro de calibragem — aqui
+   * dentro não se lê teto nenhum, pela mesma razão que não se lê relógio.
+   */
+  janelasResiduais?: readonly JanelaResidualProjetada[];
+  /** Os vínculos semânticos do escopo, já reavaliados contra a versão corrente. */
+  vinculosSemanticos?: readonly VinculoProjetado[];
+  /** Os incidentes físicos do escopo, já projetados pela governança. */
+  incidentesFisicos?: readonly IncidenteFisicoProjetado[];
 }
 
 /** Peso da revogação pendente conforme a criticidade do local (item 28/29). */
 const MULTIPLICADOR_DE_CRITICIDADE: Readonly<Record<string, number>> = Object.freeze({
+  LOW: 0.5,
+  MEDIUM: 1,
+  HIGH: 1.5,
+  CRITICAL: 2
+});
+
+/** Peso do incidente conforme a severidade com que foi aberto (D-056). */
+const MULTIPLICADOR_DE_SEVERIDADE: Readonly<Record<string, number>> = Object.freeze({
   LOW: 0.5,
   MEDIUM: 1,
   HIGH: 1.5,
@@ -172,6 +234,44 @@ export function calcularIndicadores(entrada: EntradaDeIndicadores): IndicadoresD
   }
   zonasComRepeticao.sort();
 
+  // D-055: a dívida de revogabilidade. Note que só conta a credencial que
+  // ESTOUROU o teto — uma eKey de oito horas num consultório não entra aqui, e
+  // não deve: o indicador existe para apontar a chave que não se pede de volta,
+  // não para contar credenciais.
+  let janelasDescobertas = 0;
+  let pesoDeJanelas = 0;
+  let semCaminhoDeVolta = 0;
+  for (const janela of entrada.janelasResiduais ?? []) {
+    if (janela.modo === 'IRREVOGAVEL_ATE_EXPIRAR' && janela.minutos === null) semCaminhoDeVolta += 1;
+    if (!janela.excedeuTeto) continue;
+    janelasDescobertas += 1;
+    const criticidade = criticidadePorEndpoint.get(janela.endpointId) ?? 'MEDIUM';
+    pesoDeJanelas += MULTIPLICADOR_DE_CRITICIDADE[criticidade] ?? 1;
+  }
+
+  // D-052: o levantamento em falta. Divergente conta à parte do não verificado
+  // porque são achados de naturezas diferentes — um é trabalho que ninguém fez,
+  // o outro é conferência que FOI feita e não bateu, e o segundo é mais grave.
+  let vinculosNaoVerificados = 0;
+  let vinculosDivergentes = 0;
+  for (const vinculo of entrada.vinculosSemanticos ?? []) {
+    if (vinculo.estado === 'NAO_VERIFICADO') vinculosNaoVerificados += 1;
+    if (vinculo.estado === 'DIVERGENTE') vinculosDivergentes += 1;
+  }
+
+  // D-056: o incidente que não chamou ninguém. A ponderação é pela SEVERIDADE
+  // do incidente, e não pela criticidade do endpoint, porque o sistema físico
+  // em questão frequentemente não é uma porta — uma rede de gases não tem
+  // criticidade de endpoint, tem severidade de incidente.
+  let incidentesSemAutoridade = 0;
+  let pesoDeIncidentes = 0;
+  for (const incidente of entrada.incidentesFisicos ?? []) {
+    if (!incidente.emAberto) continue;
+    if (incidente.papeisEncaminhados.length > 0) continue;
+    incidentesSemAutoridade += 1;
+    pesoDeIncidentes += MULTIPLICADOR_DE_SEVERIDADE[incidente.severidade] ?? 1;
+  }
+
   let backlogDeSync = 0;
   for (const valor of entrada.backlogDeSincronizacaoPorEndpoint?.values() ?? []) backlogDeSync += valor;
 
@@ -204,6 +304,13 @@ export function calcularIndicadores(entrada: EntradaDeIndicadores): IndicadoresD
     revisoesDeEmergenciaPendentes: revisoesPendentes,
     pesoDeRevisoesDeEmergencia: pesoDeRevisoes,
     repeticoesDeEmergencia: repeticoes,
-    zonasComRepeticao
+    zonasComRepeticao,
+    janelasResiduaisDescobertas: janelasDescobertas,
+    pesoDeJanelasResiduais: pesoDeJanelas,
+    credenciaisSemCaminhoDeVolta: semCaminhoDeVolta,
+    vinculosNaoVerificados,
+    vinculosDivergentes,
+    incidentesSemAutoridade,
+    pesoDeIncidentesSemAutoridade: pesoDeIncidentes
   };
 }

@@ -27,7 +27,7 @@ const registro = registroDoHealth();
 // Número explícito de propósito: um peso novo que entre sem ninguém decidir
 // move o score de todo mundo em silêncio, e este `igual` é o que obriga a
 // decisão a passar por aqui.
-igual('os catorze pesos estão registrados', CONSTANTES_DO_HEALTH.length, 14);
+igual('os dezessete pesos estão registrados', CONSTANTES_DO_HEALTH.length, 17);
 verificar(
   'nenhum entrou sem curador',
   CONSTANTES_DO_HEALTH.every((c) => c.curador.trim().length > 0)
@@ -35,12 +35,16 @@ verificar(
 verificar(
   'nenhum entrou sem procedência textual',
   // Um ADR deste repositório é procedência tão boa quanto a especificação: é
-  // decisão datada, com contexto escrito e alternativas descartadas.
+  // decisão datada, com contexto escrito e alternativas descartadas. E um
+  // delta do ledger de pesquisa (`D-0NN`) também é: ele tem data, curadoria,
+  // contraditório e um documento consolidado por trás. O que esta verificação
+  // recusa é o peso que entra citando a si mesmo.
   CONSTANTES_DO_HEALTH.every(
     (c) =>
       c.procedencia.includes('item') ||
       c.procedencia.includes('Derivado') ||
-      c.procedencia.includes('ADR-')
+      c.procedencia.includes('ADR-') ||
+      /\bD-\d{3}\b/.test(c.procedencia)
   )
 );
 verificar(

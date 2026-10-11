@@ -57,9 +57,15 @@ A confiança na identidade pode atravessar organizações e unidades. A
 autorização continua sujeita à política local, à competência, à
 responsabilidade e ao contexto.
 
-**Estado: `PENDENTE`.** A hierarquia `Organization → … → Endpoint` existe e o
-Health Score já é calculado por nível, mas não há `TrustDomain` nem
-reconhecimento de identidade emitida por outra unidade.
+**Estado: `IMPLEMENTADO` em 11/10/2026, pelo D-057.** `DominioDeAutoridade`,
+`Tenant` e `DelegacaoDeAutoridade` separam visibilidade comercial de autoridade
+institucional, e `autoridadeEfetiva` calcula POR organização — não há união de
+papéis entre organizações, nem quando o vínculo é o mesmo. A defesa é
+estrutural: a função não recebe o tenant (ADR-0032).
+
+Permanece pendente o reconhecimento de identidade emitida por outra unidade: o
+login federado é do host, e este produto só decide o que fazer com o papel
+depois que a identidade chegou.
 
 ## D-017 — Observação não é julgamento
 
@@ -69,11 +75,16 @@ Ela pode **iniciar** avaliação contextual; reconhecer ou criar
 responsabilidade institucional exige política, escopo de delegação e
 autoridade humana.
 
-**Estado: `IMPLEMENTADO` como princípio, `PENDENTE` como fluxo.** O produto
-já separa rigorosamente medir de decidir (ADR-0003: DIRETIVO, CONSULTIVO,
-EXECUTIVO, HUMANO) e já recusa afirmar estado físico não confirmado
-(ADR-0004). O que falta é o objeto que este princípio governaria — não há
-passagem observada porque não há observação.
+**Estado: `IMPLEMENTADO` em 11/10/2026, pelos D-053 e D-056.** O princípio já
+estava honrado (ADR-0003 e ADR-0004); o que faltava era o objeto, e agora há
+dois. `IdentificadorObservado` separa o fato do sensor da afirmação e da prova,
+e `avaliarProva` não tem ramo que alcance `PROVADA` a partir de observação
+(ADR-0033). A cadeia
+observação → avaliação → incidente → intervenção está separada por construção, e
+um incidente de severidade alta não nasce de leitura de modelo.
+
+Permanece `RESEARCH_REQUIRED` a passagem observada com câmera real: nada aqui
+fala com sensor.
 
 ## D-018 — Capacidade não implica autoridade
 
@@ -81,11 +92,15 @@ Possuir capacidade técnica para observar, decidir ou executar uma ação não
 concede autoridade institucional para realizá-la. `AuthorityBoundary` deve ser
 avaliado independentemente de `DeviceCapability`.
 
-**Estado: `PARCIAL`.** `CapacidadeDeEndpoint` e `CapacidadeDeProvedor` já
-existem e já governam o que pode ser pedido a cada equipamento; a alçada
-humana é congelada por decisão (ADR-0016). O que não existe é o limite de
-**delegação** — um supervisor não tem escopo declarado, porque ainda não há
-supervisor no modelo.
+**Estado: `IMPLEMENTADO` em 11/10/2026.** O escopo de delegação chegou em duas
+etapas: `EscopoDeDelegacao` para responsabilidade temporária (ADR-0020) e
+`DelegacaoDeAutoridade` para autoridade institucional (ADR-0032), esta com
+origem, destino, escopo, vigência e quem assinou. A ausência de qualquer um dos
+cinco é o que distingue delegação de vazamento.
+
+E o D-056 acrescentou o caso que faltava do lado do equipamento: a criticidade
+da alçada é da INTERVENÇÃO, não do sistema. Inspecionar a rede de gases é
+BAIXA; desligá-la é CRITICA.
 
 ## D-019 — Estado físico não confirmado não é sucesso
 
@@ -121,6 +136,112 @@ capacidade utilizada.
 idade da leitura — uma leitura recente do estado *anterior* não confirma a
 revogação (ADR-0004, defeito corrigido pela própria bateria). Falta declarar
 versão, saúde e local de execução da capacidade.
+
+---
+
+## Consolidado de 4 a 10/10/2026 — os sete deltas de outubro
+
+> Mesma procedência das decisões acima: investigação conduzida fora deste
+> repositório, trazida pelo autor em 11/10/2026 como consolidado executivo. A
+> matriz de confronto contra o código está em `matriz-d051-d057.md`, e foi
+> construída ANTES de qualquer linha nova — como o próprio consolidado pedia.
+
+## D-051 — Strong Credential ≠ Strong Access Path
+
+A segurança de um ponto de acesso é a do seu elo mais fraco, e o elo mais fraco
+raramente é a credencial que o projeto escolheu: é a chave mecânica da portaria,
+a botoeira alcançável pelo vão, a senha de serviço do instalador, o modo livre
+programado e nunca revisto.
+
+**Estado: `IMPLEMENTADO` (ADR-0028).** `MeioDeAcesso` separa credencial de
+bypass, `forcaDoCaminho` é o MÍNIMO dos elos, e `avaliarExposicao` cruza a força
+com a criticidade do recurso. Caminho não levantado devolve `NAO_AVALIADA`, e
+nunca `FORTE`.
+
+Consumido pelo portão de emissão. Não há regra de política sobre exposição, e a
+ausência é deliberada: negar a entrada de uma enfermeira não corrige a chave
+mecânica do cofre — o achado é de facilities e vai para quem conserta.
+
+## D-052 — Signal ≠ Meaning
+
+Comandar o relé 2 não é abrir a porta da UTI 3. Entre o identificador que o
+produto comanda e a folha que se abre há controlador, número de relé, fiação e
+fechadura, e cada degrau é um lugar onde o significado pode ter mudado.
+
+**Estado: `IMPLEMENTADO` (ADR-0029).** `VinculoSemanticoFisico` com quatro
+estados, versionamento da configuração física, e teto de confiança no motor
+físico: a evidência do fabricante é sobre o CANAL, e nenhuma leitura pode valer
+mais do que a correspondência entre o canal e a porta cujo nome está na tela.
+
+O modo de falha que ele impede é o mais silencioso do produto: o comando
+FUNCIONA, a confirmação volta, e a porta que trancou foi a do depósito ao lado.
+
+## D-053 — Observed Identifier ≠ Credential Proof
+
+Um identificador observado por sensor — placa, rosto, crachá lido por câmera —
+não é credencial apresentada e não prova autorização.
+
+**Estado: `IMPLEMENTADO` (ADR-0033).** Três degraus separados, e `avaliarProva`
+sem ramo que alcance `PROVADA` a partir de observação, com qualquer confiança
+declarada pelo sensor. `APENAS_OBSERVADA` convoca conferência: a placa adianta a
+fila e não substitui a apresentação.
+
+**`RESEARCH_REQUIRED`:** LPR e reconhecimento facial reais, que exigem integração
+verificada e avaliação de privacidade.
+
+## D-054 — Entitlement ≠ Immediate Exercisability
+
+Privacidade de paciente, procedimento em curso, ocupação máxima, manutenção e
+bloqueio local impedem a entrada AGORA sem revogar o direito de ninguém.
+
+**Estado: `IMPLEMENTADO` (ADR-0030).** `ExercicioDoDireito` é leitura separada
+que o `desiredState` não conhece, e as regras novas só decidem em modo ACCESS.
+A assimetria é o delta: a MESMA restrição que nega o instante não decide nada
+sobre o direito, e há teste que a guarda.
+
+`BLOQUEIO_LOCAL_DO_EQUIPAMENTO` ganhou lugar próprio em impedimento absoluto —
+nem a quebra de vidro o atravessa, porque conceder em software uma porta
+trancada por dentro faz a tela prometer o que a fechadura não cumpre.
+
+## D-055 — Issuance ≠ Revocability
+
+Emitir é assumir uma janela residual que a revogação não encurta. Um PIN offline
+de noventa dias numa fechadura sem gateway não se revoga: ele expira.
+
+**Estado: `IMPLEMENTADO` (ADR-0028), e é o mais consequente dos sete.** O ciclo
+decidia o direito com todo o rigor do produto e materializava sem perguntar o
+que estava materializando. Agora `avaliarEmissao` roda antes de qualquer ordem,
+com tetos por criticidade em SOMBRA — eles convocam uma pessoa e nunca recusam
+sozinhos. A única recusa é estrutural: credencial sem término previsto, sem
+caminho de revogação, em recurso CRITICAL.
+
+## D-056 — Safety Observation ≠ Intervention Authority
+
+Observar um sistema físico não autoriza intervir nele. A cadeia tem quatro atos
+— observação, avaliação, incidente, intervenção — e colapsá-los produz o sistema
+que desliga a rede de oxigênio de um bloco cirúrgico com três salas ocupadas.
+
+**Estado: `IMPLEMENTADO` como fluxo, `SIMULATED` como execução (ADR-0031).** Os
+quatro atos separados por construção, autorização contra o hash do material
+revisado, e `ordemDeIntervencao` que lança quando não houve autorização. Nada
+neste módulo fala com equipamento.
+
+A recusa que liga este delta ao ADR-0027: um incidente de severidade alta não
+nasce de prosa. Quando toda a sustentação vem de leitura de modelo, a abertura é
+recusada — sem descartar a leitura, que segue valendo como triagem.
+
+## D-057 — Hierarchical Visibility ≠ Federated Authority
+
+Administrar comercialmente uma frota de equipamentos não confere autoridade
+institucional sobre as organizações atendidas.
+
+**Estado: `IMPLEMENTADO` (ADR-0032), e fecha o D-016.** Visibilidade comercial e
+autoridade institucional são eixos independentes, e a defesa é estrutural:
+`autoridadeEfetiva` não recebe o tenant. Não é verificação que alguém poderia
+esquecer — é informação que a função não tem.
+
+O segundo caso tem teste próprio: a mesma pessoa em dois hospitais da mesma rede.
+A identidade atravessa organizações; o papel não.
 
 ---
 
@@ -162,3 +283,27 @@ ADR-0026 a ligou. Vale registrar o que as seis têm em comum: nenhuma era um
 erro de lógica. Todas eram capacidades corretas, testadas, sem chamador — e
 seis ocorrências no mesmo repositório dizem que este é o modo de falha
 característico de um produto construído por camadas bem separadas.
+
+**Sétima e oitava, em 11/10/2026, e as duas mudam algo sobre o padrão.**
+
+A sétima é a primeira que nasce pontuada. O incidente físico aberto sem ninguém
+encaminhado (D-056) entrou no Health Score no mesmo dia em que a capacidade
+existe, em vez de ser descoberto meses depois — e o componente cobra a AUSÊNCIA
+de encaminhamento, nunca a existência do incidente. Pagar a dívida no ato de
+contraí-la é mais barato do que escrevê-la para quem vier depois.
+
+A oitava é a mais antiga de todas, e só apareceu porque os deltas de outubro a
+esbarraram: **o modo ACCESS não tinha chamador.** O ADR-0008 separou os dois
+modos de decisão com argumento correto, `REGRA_TURNO` guardava
+`modo === 'ACCESS'`, o tipo existia, o motor aceitava os dois — e nenhuma
+execução deste repositório jamais montou um pedido em modo ACCESS. Desde o
+segundo dia do produto. O achado veio ao escrever as regras de D-053 e D-054,
+que só fazem sentido nesse modo: ficou visível que elas nasceriam mortas.
+
+O que as oito ensinam, somadas: **o padrão não é sobre esquecimento. É sobre a
+ordem em que um produto por camadas é construído.** A camada que declara a
+capacidade é escrita por quem está pensando na capacidade; o chamador pertence a
+outra camada, escrita noutro dia, por quem está pensando noutra coisa. O
+intervalo entre os dois dias é onde a dívida nasce — e a única defesa que
+funcionou até agora foi a bancada montada: se a bancada não liga, produção
+também não liga.

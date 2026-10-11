@@ -38,6 +38,11 @@ import {
 import { ConsultaDeCompetencia, SEM_COMPETENCIAS } from '../governanca/competencia';
 import { ConsultaDeEmergencia, SEM_EMERGENCIAS } from '../governanca/emergencia';
 import { HistoricoDeEmergencias } from '../dominio/emergencia';
+import {
+  ConsultaDeRestricoesLocais,
+  SEM_RESTRICOES_LOCAIS,
+  lerExercicio
+} from '../dominio/restricao-local';
 import { AfetadosPelaDecisao } from '../contratos-estruturais/filtro-zero';
 
 export interface MundoLogico {
@@ -114,6 +119,18 @@ export interface MundoLogico {
    * repetição é jurisdição humana (ADR-0023); notá-la é trabalho do score.
    */
   historicoDeEmergencias?: HistoricoDeEmergencias;
+  /**
+   * As restrições locais dos recursos (D-054).
+   *
+   * Quem conhece ocupação de leito, procedimento em curso e ordem de
+   * manutenção é o sistema assistencial e o de facilities. Entram aqui
+   * projetadas — a espécie da restrição, nunca o motivo clínico dela.
+   *
+   * Ausente significa nenhuma restrição declarada, e isso NÃO fecha porta
+   * nenhuma: é a única consulta deste motor cuja ausência é otimista, pela
+   * razão escrita em `dominio/restricao-local.ts`.
+   */
+  restricoesLocais?: ConsultaDeRestricoesLocais;
 }
 
 /**
@@ -246,9 +263,43 @@ export function montarContexto(
       vinculo.id,
       endpoint.id,
       agora
-    )
+    ),
+    ...exercicioDoEndpoint(mundo, vinculo, endpoint, agora)
   };
   return contexto;
+}
+
+/**
+ * A leitura do exercício local para esta dupla (vínculo, endpoint).
+ *
+ * Fica numa função separada, e não inline em `montarContexto`, por uma razão
+ * que vale dizer: ela produz DUAS propriedades do contexto — a leitura e as
+ * espécies — e espalhar isso no literal faria a próxima espécie de restrição
+ * ser acrescentada num lugar e esquecida no outro, deixando a justificativa da
+ * regra muda sobre o motivo da negativa.
+ *
+ * O que ela NÃO faz: influenciar o `desiredState`. A leitura viaja para o
+ * contexto e só as regras de modo ACCESS a consultam. Em modo ENTITLEMENT o
+ * valor está lá e nenhuma regra o lê — e é por isso que uma obra de duas horas
+ * não revoga direito de ninguém.
+ */
+function exercicioDoEndpoint(
+  mundo: MundoLogico,
+  vinculo: Relationship,
+  endpoint: Endpoint,
+  agora: Date
+): Pick<AtributosDeContexto, 'exercicioLocal' | 'especiesDeRestricaoLocal'> {
+  const consulta = mundo.restricoesLocais ?? SEM_RESTRICOES_LOCAIS;
+  const restricoes = consulta.vigentesPara(endpoint.id, endpoint.zonaId, agora);
+  if (restricoes.length === 0) return { exercicioLocal: undefined, especiesDeRestricaoLocal: undefined };
+  const leitura = lerExercicio({
+    endpointId: endpoint.id,
+    zonaId: endpoint.zonaId,
+    papeis: vinculo.roleIds,
+    agora,
+    restricoes
+  });
+  return { exercicioLocal: leitura.exercicio, especiesDeRestricaoLocal: leitura.especies };
 }
 
 /**

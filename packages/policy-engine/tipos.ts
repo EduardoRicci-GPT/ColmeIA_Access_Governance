@@ -13,6 +13,8 @@
 import { CredentialMethod, Criticidade } from '../dominio/topologia';
 import { LeituraDeCompetencia } from '../governanca/competencia';
 import { DecisionOrigin } from '../dominio/eventos';
+import { EspecieDeRestricaoLocal, ExercicioDoDireito } from '../dominio/restricao-local';
+import { ProvaDeAutorizacao } from '../dominio/identificador';
 
 /**
  * Atributos de contexto — a superfície MÍNIMA que o motor aceita.
@@ -65,6 +67,40 @@ export interface AtributosDeContexto {
    * posterior, e ela lê do registro.
    */
   quebraDeVidroAtiva?: boolean;
+  /**
+   * O exercício do direito neste instante, já projetado (D-054).
+   *
+   * Chega como leitura, e não como a lista de restrições: o motor decide a
+   * porta e não precisa saber que o quarto 312 tem privacidade declarada nem
+   * por quê. Quem precisa disso é a tela, a trilha e quem responde pela sala.
+   *
+   * Ausente significa que a instalação não declarou restrição local alguma — e
+   * isso NÃO fecha porta nenhuma. É a inversão deliberada do pessimismo que
+   * governa o resto deste motor: em política de acesso, fechar por omissão
+   * protege; em restrição local, fechar por omissão trancaria todo hospital que
+   * ainda não integrou ocupação de leito.
+   *
+   * E uma propriedade que os testes guardam: esta leitura só decide em modo
+   * ACCESS. Em modo ENTITLEMENT ela não é consultada, porque uma obra de duas
+   * horas não pode revogar o direito de ninguém.
+   */
+  exercicioLocal?: ExercicioDoDireito;
+  /**
+   * As espécies de restrição local que incidiram. Vai para a justificativa, e
+   * é o que permite à tela dizer "procedimento em curso" em vez de "negado".
+   */
+  especiesDeRestricaoLocal?: readonly EspecieDeRestricaoLocal[];
+  /**
+   * O que o conjunto de fatos de identificação PROVA (D-053).
+   *
+   * `APENAS_OBSERVADA` é o valor que o delta acrescenta, e o motor é obrigado a
+   * tratá-lo como ausência de prova: uma placa reconhecida por câmera adianta a
+   * conferência da portaria e não substitui a apresentação de credencial.
+   *
+   * Ausente significa que o caminho normal foi usado — crachá, biometria,
+   * teclado —, e nada neste eixo interfere na decisão.
+   */
+  provaDeIdentificador?: ProvaDeAutorizacao;
 }
 
 /**

@@ -39,7 +39,17 @@ export type NaturezaDeDivergencia =
   | 'CONFLITO_DE_POLITICA'
   | 'CREDENCIAL_OBSOLETA'
   | 'BATERIA_CRITICA'
-  | 'DESVIO_DE_RELOGIO';
+  | 'DESVIO_DE_RELOGIO'
+  /**
+   * A correspondência entre o canal comandado e o recurso nomeado não está
+   * verificada (D-052).
+   *
+   * Está nesta lista, e não entre os achados de configuração, porque ela é
+   * divergência no sentido estrito do produto: entre o que o sistema afirma e o
+   * que há evidência de ser verdade. A diferença é o OBJETO da afirmação —
+   * aqui, a dúvida não é se a ordem chegou, e sim se chegou à porta certa.
+   */
+  | 'VINCULO_SEMANTICO_NAO_VERIFICADO';
 
 /**
  * Piso de risco por natureza — o mínimo que aquela divergência vale,
@@ -56,7 +66,8 @@ const PISO_POR_NATUREZA: Readonly<Record<NaturezaDeDivergencia, NivelDeRisco>> =
   CONFLITO_DE_POLITICA: 'MEDIUM',
   CREDENCIAL_OBSOLETA: 'MEDIUM',
   BATERIA_CRITICA: 'MEDIUM',
-  DESVIO_DE_RELOGIO: 'MEDIUM'
+  DESVIO_DE_RELOGIO: 'MEDIUM',
+  VINCULO_SEMANTICO_NAO_VERIFICADO: 'MEDIUM'
 });
 
 /**
@@ -69,7 +80,12 @@ const ESCALA_COM_CRITICIDADE: ReadonlySet<NaturezaDeDivergencia> = new Set<Natur
   'REVOGACAO_NAO_CONFIRMADA',
   'ESTADO_DESCONHECIDO',
   'CREDENCIAL_OBSOLETA',
-  'CONFLITO_DE_POLITICA'
+  'CONFLITO_DE_POLITICA',
+  // Comandar o canal errado numa sala administrativa é um chamado de
+  // manutenção; na rede de gases medicinais é um evento de conformidade. A
+  // natureza escala com a criticidade pela mesma razão que a revogação
+  // pendente escala.
+  'VINCULO_SEMANTICO_NAO_VERIFICADO'
 ]);
 
 export interface EntradaDeClassificacao {

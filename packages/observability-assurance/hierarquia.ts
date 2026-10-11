@@ -20,6 +20,9 @@
 import { Endpoint, NoDeHierarquia, StatusDeConectividade, Topologia, endpointsSob } from '../dominio/topologia';
 import { DiagnosticoDeLatencia } from '../dominio/telemetria';
 import { QuebraDeVidroProjetada } from '../dominio/emergencia';
+import { JanelaResidualProjetada } from '../dominio/revogabilidade';
+import { VinculoProjetado } from '../dominio/vinculo-semantico';
+import { IncidenteFisicoProjetado } from '../dominio/incidente';
 import { PhysicalReconciliationResult } from '../physical-state-reconciliation/tipos';
 import { AccessGovernanceHealth, EvidenciasDeHealth, calcularHealth } from './health';
 import { PesosLidos, lerPesos } from './calibragem';
@@ -47,6 +50,19 @@ export interface EntradaDaHierarquia {
   quebrasDeVidro?: readonly QuebraDeVidroProjetada[];
   /** Milissegundos em que a repetição ainda conta. Sem ela, conta tudo. */
   janelaDeRecorrenciaMs?: number;
+  /**
+   * As três leituras do consolidado de outubro, inteiras, recortadas por escopo
+   * aqui como tudo o mais.
+   *
+   * As janelas residuais e os vínculos chegam por endpoint; os incidentes
+   * físicos, por ZONA — e é uma diferença que importa, porque uma rede de gases
+   * medicinais não é um endpoint de acesso. Um incidente sem zona declarada
+   * conta no escopo raiz, pela mesma regra que já valia para latência de
+   * infraestrutura compartilhada.
+   */
+  janelasResiduais?: readonly JanelaResidualProjetada[];
+  vinculosSemanticos?: readonly VinculoProjetado[];
+  incidentesFisicos?: readonly IncidenteFisicoProjetado[];
   calculatedAt: Date;
   /**
    * Pesos lidos pela porta de calibragem, com os avisos que vêm junto.
@@ -138,6 +154,16 @@ export function calcularArvoreDeHealth(entrada: EntradaDaHierarquia): ArvoreDeHe
       if (idsDoEscopo.has(endpointId)) backlog.set(endpointId, valor);
     }
 
+    const janelasResiduais = (entrada.janelasResiduais ?? []).filter((janela) =>
+      idsDoEscopo.has(janela.endpointId)
+    );
+    const vinculosSemanticos = (entrada.vinculosSemanticos ?? []).filter((vinculo) =>
+      idsDoEscopo.has(vinculo.endpointId)
+    );
+    const incidentesFisicos = (entrada.incidentesFisicos ?? []).filter((incidente) =>
+      incidente.zonaId === undefined ? no.paiId === null : zonas.has(incidente.zonaId)
+    );
+
     const indicadores = calcularIndicadores({
       escopoId: no.id,
       endpoints,
@@ -154,7 +180,10 @@ export function calcularArvoreDeHealth(entrada: EntradaDaHierarquia): ArvoreDeHe
       quebrasDeVidro: quebras,
       backlogDeEventos: no.nivel === 'ORGANIZATION' ? entrada.backlogDeEventos : 0,
       backlogDeSincronizacaoPorEndpoint: backlog,
-      bateriasCriticas: baterias
+      bateriasCriticas: baterias,
+      janelasResiduais,
+      vinculosSemanticos,
+      incidentesFisicos
     });
 
     porEscopo.set(
@@ -173,7 +202,16 @@ export function calcularArvoreDeHealth(entrada: EntradaDaHierarquia): ArvoreDeHe
           ...evidenciasDoEscopo(endpoints, entrada.conectividade, reconciliacoes),
           revisoesDeEmergencia: quebras
             .filter((quebra) => quebra.encerrada && !quebra.revisada)
-            .map((quebra) => quebra.quebraId)
+            .map((quebra) => quebra.quebraId),
+          janelasResiduais: janelasResiduais
+            .filter((janela) => janela.excedeuTeto)
+            .map((janela) => janela.credentialId),
+          vinculosSemanticos: vinculosSemanticos
+            .filter((vinculo) => vinculo.estado === 'NAO_VERIFICADO' || vinculo.estado === 'DIVERGENTE')
+            .map((vinculo) => vinculo.vinculoId),
+          incidentesSemAutoridade: incidentesFisicos
+            .filter((incidente) => incidente.emAberto && incidente.papeisEncaminhados.length === 0)
+            .map((incidente) => incidente.incidenteId)
         },
         pesos
       )

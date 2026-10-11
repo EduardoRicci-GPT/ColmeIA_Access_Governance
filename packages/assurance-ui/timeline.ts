@@ -107,7 +107,24 @@ const ROTULO: Readonly<Record<TipoDeEvento, string>> = Object.freeze({
   EscalationNotified: 'Quem responde pelo caso foi chamado',
   EscalationNotificationUndelivered: 'Caso aberto sem ninguém a chamar',
   CognitiveReadingRouted: 'Leitura por público roteada na cascata de faculdades',
-  CognitiveProseDiscarded: 'Prosa de faculdade descartada por âncora inventada'
+  CognitiveProseDiscarded: 'Prosa de faculdade descartada por âncora inventada',
+  AccessPathAssessed: 'Caminho de acesso do recurso avaliado',
+  CredentialIssuanceEvaluated: 'Emissão avaliada quanto à revogabilidade',
+  CredentialIssuanceWithheld: 'Emissão retida: a janela residual não cabe no recurso',
+  SemanticBindingVerified: 'Correspondência canal–recurso verificada em campo',
+  SemanticBindingDiverged: 'Correspondência canal–recurso divergente',
+  LocalConstraintDeclared: 'Restrição local do recurso declarada',
+  LocalExerciseSuspended: 'Exercício suspenso localmente, sem revogar o direito',
+  ObservedIdentifierAsserted: 'Identificador observado afirmado a um sujeito',
+  ObservedIdentifierRejectedAsProof: 'Identificador observado recusado como prova de autorização',
+  PhysicalObservationRecorded: 'Observação sobre sistema físico registrada',
+  PhysicalConditionAssessed: 'Condição do sistema físico avaliada',
+  PhysicalIncidentOpened: 'Incidente físico aberto',
+  InterventionRequested: 'Intervenção sobre sistema físico solicitada',
+  InterventionAuthorized: 'Intervenção autorizada por quem tem alçada',
+  InterventionDenied: 'Intervenção recusada',
+  FederatedAuthorityDenied: 'Herança de autoridade entre organizações recusada',
+  TenantVisibilityLeakDetected: 'Visibilidade comercial além do contrato detectada'
 });
 
 function horaCompleta(data: Date): string {

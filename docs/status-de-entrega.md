@@ -123,9 +123,9 @@ Nenhum destes tocou hardware real. São reproduzidos de forma determinística pe
 
 ## 8. Bateria
 
-`npm run verificar` — **756 verificações, todas passando** neste repositório.
+`npm run verificar` — **920 verificações, todas passando** neste repositório.
 
-São 758 no checkout da Aletheia, e a diferença não é defeito: duas verificações
+São 922 no checkout da Aletheia, e a diferença não é defeito: duas verificações
 da prova diferencial do guardrail estrutural só rodam com o arquivo de origem em
 disco. Fora dali elas viram uma, que **registra não ter sido executada** em vez
 de sumir. O mesmo vale para a deriva do espelho MPE-H, que declara
@@ -146,6 +146,7 @@ de sumir. O mesmo vale para a deriva do espelho MPE-H, que declara
 | Contratos estruturais do MPE-H (diferencial só com a origem em disco) | 47 |
 | Leitura 360° e a porta do R-VEP | 21 |
 | Sinergentia³: cascata de faculdades e ancoragem | 41 |
+| Deltas D-051 a D-057 — consolidado de 10/10/2026 | 164 |
 
 Mais três gates: `acesso:lint` (pureza — sem DOM, sem Node, `strict`,
 `noUncheckedIndexedAccess`), `acesso:lint-estado` (o item 2 como condição de CI) e
@@ -241,3 +242,55 @@ e não podem ser apresentadas como funcionalidade disponível.
 6. Canal real do Sentinel para TI e trilha de incidentes.
 7. Bancada com hardware real antes de promover qualquer evidência física de SIMULATED.
 8. Governança de egresso da Sinergentia antes de faculdade remota em ambiente institucional.
+
+## 11. Consolidado de 4 a 10/10/2026 — os sete deltas, implementados em 11/10
+
+> Classificação honesta, no vocabulário do item 45. Um teste simulado aprovado
+> não autoriza declarar integração com fabricante como implementada, e nenhuma
+> linha desta seção foi exercida contra equipamento real.
+
+| Delta | O que entrou | Status |
+|---|---|---|
+| D-051 | `MeioDeAcesso`, `forcaDoCaminho` (mínimo dos elos), `avaliarExposicao` | `IMPLEMENTED` — a leitura; `RESEARCH_REQUIRED` — o levantamento de campo, que é processo e não software |
+| D-052 | `VinculoSemanticoFisico` versionado, teto de confiança no motor físico | `IMPLEMENTED` — a disciplina; a conferência é ato humano, e nenhuma instalação a fez |
+| D-053 | `IdentificadorObservado`, `AfirmacaoDeIdentidade`, `avaliarProva`, `SujeitoVeiculo` | `IMPLEMENTED` — o modelo; `RESEARCH_REQUIRED` — LPR e reconhecimento facial reais |
+| D-054 | `RestricaoLocalDoRecurso`, `ExercicioDoDireito`, três regras em modo ACCESS | `IMPLEMENTED`; `INTERFACE_READY` para ocupação, procedimento e manutenção, que o host liga |
+| D-055 | `PerfilDeRevogabilidade`, `JanelaResidual`, portão `avaliarEmissao` | `IMPLEMENTED` — o portão; a revogabilidade dos três fabricantes é `REQUIRES_VENDOR_INTEGRATION`, declarada e não medida |
+| D-056 | `ObservacaoFisica` → `AvaliacaoDeCondicao` → `IncidenteFisico` → `MesaDeIntervencao` | `IMPLEMENTED` — o fluxo e a autoridade; `SIMULATED` — a execução: nada aqui fala com equipamento |
+| D-057 | `Tenant`, `DominioDeAutoridade`, `DelegacaoDeAutoridade`, `autoridadeEfetiva` | `IMPLEMENTED` — a separação; o isolamento por infraestrutura depende de persistência com escopo |
+
+**Mais um achado, que o consolidado não pedia.** O modo ACCESS do ADR-0008 não
+tinha chamador desde o segundo dia do produto: o tipo existia, `REGRA_TURNO` o
+guardava, e nenhuma execução montava um pedido nesse modo.
+`orquestracao/decisao-online.ts` o fecha, com a honestidade que o modo exigia —
+um endpoint sem `ONLINE_DECISION` não recebe resposta nenhuma, porque ele
+decidiu sozinho. Status: `IMPLEMENTED`; o chamador real é o gateway do
+fabricante em modo online, que é `REQUIRES_VENDOR_INTEGRATION`.
+
+### O que a emissão retém hoje, e o que ela deixa passar
+
+| Situação | O ciclo faz |
+|---|---|
+| janela residual dentro do teto do recurso | materializa |
+| janela acima do teto, ou exposição inaceitável | materializa, registra o elo, e o achado vai ao Health Score |
+| credencial sem término previsto, sem caminho de revogação, em recurso CRITICAL | **retém a credencial** e registra `CredentialIssuanceWithheld` |
+| consulta de revogabilidade não ligada | materializa, e o relatório declara `emissaoAvaliada: false` |
+
+A última linha é deliberada e contraria o pessimismo do resto do produto: usar o
+pior caso por omissão reteria toda concessão de toda instalação que ainda não fez
+o levantamento, e um produto que não concede nada é desligado antes de ensinar
+nada. A lacuna é declarada, não suposta.
+
+### Health Score — três componentes novos, todos em SOMBRA
+
+| Componente | Peso | O que cobra |
+|---|---|---|
+| `JANELAS_RESIDUAIS` | 2 | credenciais cuja janela residual estourou o teto do recurso |
+| `VINCULOS_SEMANTICOS` | 2 | endpoints comandados sem correspondência canal–recurso verificada (divergente pesa 1,5×) |
+| `INCIDENTES_SEM_AUTORIDADE` | 3 | incidentes físicos em aberto sem ninguém encaminhado |
+
+Dezessete pesos no registro de calibragem, **todos em SOMBRA**, e agora com um
+segundo registro ao lado: os quatro tetos de janela residual por criticidade
+(`governanca/emissao.ts`), também em sombra. Quem lê recebe a ressalva junto do
+número, e os tetos em sombra convocam revisão humana — nunca recusam emissão
+sozinhos.

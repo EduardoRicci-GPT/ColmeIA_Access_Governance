@@ -27,9 +27,26 @@ export const PRIORIDADE = Object.freeze({
    */
   QUEBRA_DE_VIDRO: 110,
   BLOQUEIO_ESTRUTURAL: 100,
+  /**
+   * A restrição local do recurso que SUSPENDE o exercício (D-054): sala em
+   * procedimento, ala interditada, ocupação máxima. Fica acima da restrição
+   * sanitária porque é mais específica — aquela é um perfil da zona, esta é um
+   * fato daquele recurso naquele instante — e abaixo da quebra de vidro, pela
+   * mesma razão que a sanitária: numa parada, quem entra é quem está na porta.
+   */
+  RESTRICAO_LOCAL_DO_RECURSO: 85,
   RESTRICAO_SANITARIA: 80,
   COMPETENCIA_EXIGIDA: 75,
   SEGREGACAO_DE_FUNCOES: 70,
+  /**
+   * As duas exigências de revisão que o consolidado de outubro acrescentou
+   * ficam ABAIXO de toda negativa, e a ordem não é estética: `REQUIRE_APPROVAL`
+   * numa prioridade mais alta que um `DENY` venceria a negativa, e uma sala
+   * interditada passaria a ser "entre com autorização do plantão". A escada é o
+   * que impede isso, e é por ela que estes dois números são menores que 70.
+   */
+  CORROBORACAO_LOCAL: 64,
+  PROVA_DE_IDENTIFICADOR: 62,
   APROVACAO_POR_CRITICIDADE: 60,
   CONCESSAO_POR_PAPEL: 40,
   CONTINGENCIA: 30
@@ -235,14 +252,125 @@ export const REGRA_SEGREGACAO_POR_ATIVIDADE: RegraDePolitica = regraDeSegregacao
   PRIORIDADE.SEGREGACAO_DE_FUNCOES
 );
 
+/**
+ * Bloqueio acionado LOCALMENTE no equipamento — e por que ele é absoluto.
+ *
+ * Alguém girou a tranca, apertou o botão de bloqueio, trancou por dentro. O
+ * produto pode conceder o acesso em software, e a porta não vai abrir: o
+ * bloqueio é físico e a decisão do equipamento é a que acontece.
+ *
+ * Deixar esta regra abaixo da quebra de vidro seria pior do que inútil. A tela
+ * diria "acesso liberado pela emergência" a quem está do lado de fora de uma
+ * porta trancada por dentro — e num corredor, às 3h, essa frase faz alguém
+ * parar de procurar outro caminho. Negar aqui é o único jeito de a tela não
+ * prometer o que o mundo não vai cumprir.
+ *
+ * É o item 4 aplicado à decisão, e não só ao estado: o sistema não maquia de
+ * verde o que não tem evidência de ser verde.
+ */
+export const REGRA_BLOQUEIO_LOCAL: RegraDePolitica = {
+  id: 'R-BLOQUEIO-LOCAL',
+  descricao: 'Bloqueio acionado localmente no equipamento nega o acesso, inclusive sob emergência.',
+  prioridade: PRIORIDADE.IMPEDIMENTO_ABSOLUTO,
+  efeito: 'DENY',
+  aplicavel: (pedido) =>
+    pedido.modo === 'ACCESS' &&
+    (pedido.contexto.especiesDeRestricaoLocal ?? []).includes('BLOQUEIO_LOCAL_DO_EQUIPAMENTO'),
+  justificativa: () =>
+    'Bloqueio acionado localmente no equipamento. Conceder em software não abriria a porta: ' +
+    'o produto diria sim e a fechadura diria não, e quem está no corredor pararia de procurar ' +
+    'outro caminho.'
+};
+
+/**
+ * Exercício suspenso por restrição local (D-054) nega o INSTANTE, e só ele.
+ *
+ * A regra existe em modo ACCESS e não existe em modo ENTITLEMENT, e essa
+ * assimetria é o delta inteiro. Em modo ENTITLEMENT, o motor de direitos
+ * revogaria — e revogar por causa de uma obra de duas horas dispara ordem ao
+ * fabricante, sincroniza a frota, exige reemissão depois, e grava na trilha
+ * "direito revogado" onde houve "sala ocupada". Seis meses depois, a auditoria
+ * não distingue uma coisa da outra.
+ *
+ * O direito continua `ENTITLEMENT_ACTIVE`. Quando a restrição vence, a entrada
+ * volta sem que ninguém reemita nada.
+ */
+export const REGRA_RESTRICAO_LOCAL: RegraDePolitica = {
+  id: 'R-RESTRICAO-LOCAL',
+  descricao: 'Restrição local vigente suspende o exercício do direito neste instante.',
+  prioridade: PRIORIDADE.RESTRICAO_LOCAL_DO_RECURSO,
+  efeito: 'DENY',
+  aplicavel: (pedido) =>
+    pedido.modo === 'ACCESS' && pedido.contexto.exercicioLocal === 'SUSPENSO_LOCALMENTE',
+  justificativa: (pedido) =>
+    'Exercício suspenso por restrição local do recurso' +
+    ((pedido.contexto.especiesDeRestricaoLocal ?? []).length > 0
+      ? ` (${(pedido.contexto.especiesDeRestricaoLocal ?? []).join(', ')})`
+      : '') +
+    '. O direito permanece vigente: nada foi revogado, e a entrada volta quando a restrição vencer.'
+};
+
+/**
+ * Restrição local que pede um segundo fato (D-054) exige revisão humana.
+ *
+ * É o efeito que descreve a privacidade do paciente melhor do que a suspensão:
+ * a enfermeira entra no quarto, o técnico de TI não entra sozinho. Quem resolve
+ * o instante é o plantão, com acompanhamento ou segunda pessoa — e nada disso
+ * mexe no direito.
+ */
+export const REGRA_CORROBORACAO_LOCAL: RegraDePolitica = {
+  id: 'R-CORROBORACAO-LOCAL',
+  descricao: 'Restrição local que exige corroboração manda o instante para revisão humana.',
+  prioridade: PRIORIDADE.CORROBORACAO_LOCAL,
+  efeito: 'REQUIRE_APPROVAL',
+  aplicavel: (pedido) =>
+    pedido.modo === 'ACCESS' && pedido.contexto.exercicioLocal === 'EXIGE_CORROBORACAO',
+  justificativa: (pedido) =>
+    'Restrição local vigente pede um segundo fato para esta entrada' +
+    ((pedido.contexto.especiesDeRestricaoLocal ?? []).length > 0
+      ? ` (${(pedido.contexto.especiesDeRestricaoLocal ?? []).join(', ')})`
+      : '') +
+    ': acompanhamento, segunda pessoa ou liberação registrada pelo plantão.'
+};
+
+/**
+ * Identificador apenas OBSERVADO (D-053) não concede, e também não nega.
+ *
+ * As duas tentações aqui são erradas em direções opostas. Conceder transforma
+ * uma placa clonada em entrada autorizada, com registro impecável dizendo que o
+ * veículo certo entrou. Negar manda o motorista com a ordem de serviço na mão
+ * de volta ao telefone da portaria — onde nada fica registrado e o portão abre
+ * do mesmo jeito.
+ *
+ * O caminho honesto é o terceiro: a observação CONVOCA a conferência. A fila
+ * anda mais rápido porque o sistema já sabe quem está chegando, e a entrada
+ * continua dependendo de alguém apresentar credencial ou de o plantão liberar
+ * com registro.
+ */
+export const REGRA_PROVA_DE_IDENTIFICADOR: RegraDePolitica = {
+  id: 'R-PROVA-DE-IDENTIFICADOR',
+  descricao: 'Identificador observado sem credencial apresentada exige conferência humana.',
+  prioridade: PRIORIDADE.PROVA_DE_IDENTIFICADOR,
+  efeito: 'REQUIRE_APPROVAL',
+  aplicavel: (pedido) =>
+    pedido.modo === 'ACCESS' && pedido.contexto.provaDeIdentificador === 'APENAS_OBSERVADA',
+  justificativa: () =>
+    'Um sensor reconheceu um identificador e ninguém apresentou credencial. A leitura adianta ' +
+    'a conferência da portaria e não a substitui: clonar uma placa custa menos que uma fechadura.'
+};
+
 export const REGRAS_HOSPITALARES_BASE: readonly RegraDePolitica[] = Object.freeze([
+  REGRA_BLOQUEIO_LOCAL,
   REGRA_VINCULO_VIGENTE,
   REGRA_ORDEM_DE_SERVICO,
   REGRA_TURNO,
   REGRA_COMPETENCIA_SUSPENSA,
   REGRA_QUEBRA_DE_VIDRO,
   REGRA_COMPETENCIA_PENDENTE,
+  REGRA_RESTRICAO_LOCAL,
   REGRA_SEGREGACAO_POR_ATIVIDADE,
+  REGRA_CORROBORACAO_LOCAL,
+  REGRA_PROVA_DE_IDENTIFICADOR,
   REGRA_APROVACAO_EM_AREA_CRITICA,
   REGRA_CONCESSAO_POR_PAPEL,
   REGRA_CONCESSAO_POR_LOTACAO

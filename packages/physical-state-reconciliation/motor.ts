@@ -14,8 +14,10 @@
 //   2. Divergência de REVOGAÇÃO domina tudo: é a única em que a omissão do
 //      sistema deixa uma porta aberta.
 //   3. Divergência de CONCESSÃO é incômodo, não risco de segurança.
-//   4. Coerência obsoleta ainda pede verificação: silêncio de 24h não é prova.
-//   5. Coerência fresca é o único caso em que a ação é NONE.
+//   4. Coerência sobre canal cuja correspondência com o recurso não está
+//      verificada: a evidência é honesta e é sobre outro objeto (D-052).
+//   5. Coerência obsoleta ainda pede verificação: silêncio de 24h não é prova.
+//   6. Coerência fresca é o único caso em que a ação é NONE.
 // ---------------------------------------------------------------------------
 
 import { AccessState, estadoFisicoDesejado, desejaConcessao } from '../dominio/estado';
@@ -28,7 +30,8 @@ import {
   LIMIARES_FISICOS_PADRAO,
   LimiaresFisicos,
   PhysicalReconciliationResult,
-  ResumoDaReconciliacaoFisica
+  ResumoDaReconciliacaoFisica,
+  limitarConfianca
 } from './tipos';
 
 interface CadeiaDeEntrega {
@@ -93,7 +96,14 @@ export class PhysicalStateReconciliationEngine {
     const minutosDesdeConfirmacao = idadeEmMinutos(estado.lastSyncAt, agora);
     const minutosEmAberto = idadeEmMinutos(entrada.divergenciaDetectadaEm, agora);
     const cadeia = avaliarCadeia(entrada);
-    const confianca = confiancaDaLeitura(estado, entrada, minutosDesdeConfirmacao, this.limiares);
+    // O teto do vínculo semântico entra aqui, e não em cada guarda: a
+    // evidência do equipamento é sobre o CANAL, e nenhuma das cinco leituras
+    // abaixo pode valer mais do que a correspondência entre o canal e a porta
+    // cujo nome está na tela.
+    const confianca = limitarConfianca(
+      confiancaDaLeitura(estado, entrada, minutosDesdeConfirmacao, this.limiares),
+      entrada.vinculoSemantico
+    );
     const tentativasEsgotadas = entrada.tentativas.status === 'ESCALATED';
 
     const base = {
@@ -155,7 +165,10 @@ export class PhysicalStateReconciliationEngine {
         // causa, nomeada na frase. Trocar um pelo outro faria a fila do painel
         // exibir um problema de conectividade onde há um risco de acesso.
         estadoSemantico: 'DEVICE_REVOCATION_PENDING',
-        confidence: confiancaNaDivergencia(observado, cadeia.alcancavel),
+        confidence: limitarConfianca(
+          confiancaNaDivergencia(observado, cadeia.alcancavel),
+          entrada.vinculoSemantico
+        ),
         action: acao,
         riskLevel: risco.nivel,
         natureza,
@@ -188,7 +201,10 @@ export class PhysicalStateReconciliationEngine {
       return {
         ...base,
         estadoSemantico: 'DEVICE_GRANT_PENDING',
-        confidence: confiancaNaDivergencia(observado, cadeia.alcancavel),
+        confidence: limitarConfianca(
+          confiancaNaDivergencia(observado, cadeia.alcancavel),
+          entrada.vinculoSemantico
+        ),
         action: acao,
         riskLevel: risco.nivel,
         natureza,
@@ -205,7 +221,53 @@ export class PhysicalStateReconciliationEngine {
       };
     }
 
-    // ---- Guarda 4: coerente, porém sem evidência recente ------------------
+    // ---- Guarda 4: coerente, e sobre a porta errada? ---------------------
+    //
+    // Chega aqui o caso que o D-052 nomeia, e é o mais silencioso do produto:
+    // tudo coerente, tudo confirmado, e a correspondência entre o canal
+    // comandado e o recurso nomeado nunca foi conferida — ou foi, e o painel
+    // andou uma versão depois disso. A evidência existe e é honesta; ela é
+    // sobre outro objeto.
+    //
+    // A guarda vem DEPOIS das duas de divergência de propósito: uma revogação
+    // que não chegou é urgência maior que uma correspondência não conferida, e
+    // inverter a ordem esconderia a primeira atrás da segunda. Mas vem ANTES
+    // da coerência obsoleta, porque "falta conferir a porta" e "falta
+    // confirmação recente" são achados diferentes e vão para filas diferentes.
+    if (
+      coerente &&
+      (entrada.vinculoSemantico === 'DIVERGENTE' || entrada.vinculoSemantico === 'NAO_VERIFICADO')
+    ) {
+      const risco = classificarRisco({
+        natureza: 'VINCULO_SEMANTICO_NAO_VERIFICADO',
+        criticidadeDoEndpoint: entrada.criticidade,
+        minutosEmAberto: minutosEmAberto ?? undefined
+      });
+      return {
+        ...base,
+        // O estado semântico é DESCONHECIDO, e não o estado exigido: afirmar o
+        // estado exigido seria dizer que a porta está como se quer, quando o
+        // que se sabe é que o canal está como se quer.
+        estadoSemantico: 'DEVICE_SYNC_UNKNOWN',
+        confidence: 'UNKNOWN',
+        action: 'VERIFY',
+        riskLevel: risco.nivel,
+        natureza: 'VINCULO_SEMANTICO_NAO_VERIFICADO',
+        fatoresDeRisco: risco.fatores,
+        exigeEscalonamento: false,
+        reason:
+          entrada.vinculoSemantico === 'NAO_VERIFICADO'
+            ? 'O equipamento confirma o canal que recebeu a ordem, e ninguém declarou a que ' +
+              'recurso esse canal corresponde. A evidência é verdadeira e não é sobre esta porta. ' +
+              'A verificação é de campo: alguém aciona e vê abrir.'
+            : 'A correspondência entre o canal comandado e este recurso está divergente — a ' +
+              'conferência em campo apontou outra porta, ou a configuração foi remexida depois ' +
+              'dela. Tudo o que o equipamento confirmar até a nova conferência é evidência sobre ' +
+              'objeto incerto.'
+      };
+    }
+
+    // ---- Guarda 5: coerente, porém sem evidência recente ------------------
     if (confianca !== 'CONFIRMED') {
       const natureza: NaturezaDeDivergencia =
         observado === null ? 'ESTADO_DESCONHECIDO' : 'CREDENCIAL_OBSOLETA';
@@ -231,7 +293,7 @@ export class PhysicalStateReconciliationEngine {
       };
     }
 
-    // ---- Guarda 5: coerente e confirmado ---------------------------------
+    // ---- Guarda 6: coerente e confirmado ---------------------------------
     const risco = classificarRisco({
       natureza: 'ENDPOINT_OFFLINE_SEM_DIVERGENCIA',
       criticidadeDoEndpoint: entrada.criticidade
@@ -239,7 +301,7 @@ export class PhysicalStateReconciliationEngine {
     return {
       ...base,
       estadoSemantico: exigido,
-      confidence: 'CONFIRMED',
+      confidence: confianca,
       action: 'NONE',
       riskLevel: entrada.conectividadeDoEndpoint === 'ONLINE' ? 'LOW' : risco.nivel,
       natureza: 'ENDPOINT_OFFLINE_SEM_DIVERGENCIA',

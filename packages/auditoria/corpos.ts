@@ -115,6 +115,13 @@ export function corpoDoTipo(tipo: TipoDeEvento): CorpoDeOrigem {
     case 'EntitlementRevoked':
     case 'AccessPolicyConflictDetected':
     case 'CoverageGapDetected':
+    // Reter uma emissão é decidir que aquele direito não vira credencial
+    // agora. Avaliar a emissão é leitura e cai no consultivo, corretamente:
+    // são dois atos, e só um deles muda o que acontece com a porta.
+    case 'CredentialIssuanceWithheld':
+    // Recusar herança de autoridade entre organizações é decisão sobre quem
+    // manda, e não medição de nada.
+    case 'FederatedAuthorityDenied':
       return 'DIRETIVO';
     case 'PhysicalGrantRequested':
     case 'PhysicalGrantConfirmed':
@@ -138,6 +145,18 @@ export function corpoDoTipo(tipo: TipoDeEvento): CorpoDeOrigem {
     // Expirar não é: a janela fecha porque o tempo passou.
     case 'BreakGlassInvoked':
     case 'BreakGlassReviewed':
+    // A restrição local é declarada por quem responde pela sala: chefia de
+    // enfermagem, controle de infecção, facilities. É ato de gente, e registrá-lo
+    // como consultivo esconderia que alguém decidiu interditar aquele recurso.
+    case 'LocalConstraintDeclared':
+    // Autorizar e recusar intervenção sobre sistema físico são os dois atos
+    // que o D-056 existe para manter humanos. Pedir e observar não: um convoca,
+    // o outro relata.
+    case 'InterventionAuthorized':
+    case 'InterventionDenied':
+    // Quem esteve na porta e conferiu a correspondência entre canal e recurso
+    // é uma pessoa, com nome e data. A divergência é leitura; a verificação é ato.
+    case 'SemanticBindingVerified':
       return 'HUMANO';
     default:
       return 'CONSULTIVO';

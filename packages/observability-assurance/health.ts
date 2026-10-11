@@ -62,6 +62,13 @@ export interface AccessGovernanceHealth {
   /** Repetições além da primeira, por zona, na janela de recorrência. */
   recurringBreakGlass: number;
 
+  /** Credenciais cuja janela residual estourou o teto do recurso (D-055). */
+  uncoveredResidualWindows: number;
+  /** Endpoints comandados sem correspondência canal–recurso verificada (D-052). */
+  unverifiedSemanticBindings: number;
+  /** Incidentes físicos em aberto que não chamaram ninguém (D-056). */
+  physicalIncidentsWithoutAuthority: number;
+
   calculatedAt: Date;
   components: readonly HealthComponent[];
 }
@@ -87,6 +94,9 @@ export interface PesosDeHealth {
   desvioDeRelogio: number;
   revisaoDeEmergenciaPendente: number;
   emergenciaRecorrente: number;
+  janelaResidualDescoberta: number;
+  vinculoSemanticoNaoVerificado: number;
+  incidenteSemAutoridade: number;
 }
 
 export const PESOS_PADRAO: Readonly<PesosDeHealth> = Object.freeze({
@@ -110,7 +120,24 @@ export const PESOS_PADRAO: Readonly<PesosDeHealth> = Object.freeze({
   // Mais pesado que aquele, e também por natureza: a repetição não é um
   // incidente, é o sintoma de um modelo de acesso que não serve para o trabalho
   // daquela zona — e isso não se resolve revisando mais depressa.
-  emergenciaRecorrente: 3
+  emergenciaRecorrente: 3,
+  // Abaixo da revogação pendente (3), e a razão é o tempo verbal. A revogação
+  // pendente é porta que abre AGORA para quem já não devia entrar; a janela
+  // residual descoberta é porta que vai continuar abrindo QUANDO alguém mandar
+  // revogar. As duas são dívida real; só uma delas tem alguém do lado de fora.
+  janelaResidualDescoberta: 2,
+  // No mesmo patamar, e por um motivo que custou a ficar claro: o que este peso
+  // cobra não é uma porta em risco, é a CONFIABILIDADE DA EVIDÊNCIA sobre um
+  // conjunto de portas. Um vínculo não verificado não deixa ninguém entrar
+  // indevidamente — ele faz a trilha afirmar coisas verdadeiras sobre o objeto
+  // errado, e um sistema cuja evidência não se ancora deixa de servir ao que
+  // existe para servir.
+  vinculoSemanticoNaoVerificado: 2,
+  // Acima dos dois, e igual à revogação pendente. É o único dos três em que há
+  // um fato acontecendo e ninguém a caminho: a rede de gases com pressão
+  // anormal, o incidente aberto, a lista de papéis encaminhados vazia. A sexta
+  // ocorrência do D-022 custou um ADR para ser descoberta; esta nasce pontuada.
+  incidenteSemAutoridade: 3
 });
 
 /** Teto por família, para que uma única categoria não zere o score sozinha. */
@@ -128,7 +155,10 @@ export const TETOS_PADRAO = Object.freeze({
   baterias: 5,
   relogio: 10,
   revisoesDeEmergencia: 20,
-  recorrenciaDeEmergencia: 15
+  recorrenciaDeEmergencia: 15,
+  janelasResiduais: 20,
+  vinculosSemanticos: 15,
+  incidentesSemAutoridade: 15
 });
 
 function arredondar(valor: number): number {
@@ -165,6 +195,9 @@ export interface EscopoDeHealth {
 }
 
 export interface EvidenciasDeHealth {
+  janelasResiduais?: readonly string[];
+  vinculosSemanticos?: readonly string[];
+  incidentesSemAutoridade?: readonly string[];
   endpointsOffline?: readonly string[];
   endpointsDegraded?: readonly string[];
   revogacoesPendentes?: readonly string[];
@@ -332,6 +365,53 @@ export function calcularHealth(
     )
   );
 
+  // ---- Os três componentes do consolidado de outubro --------------------
+  //
+  // Os três entram pela mesma porta dos demais — `componente()`, que recusa
+  // penalidade sem contagem — e cada rótulo é obrigado a dizer o que cobra. É
+  // onde a regra do ADR-0005 mais custa e mais vale: quem olha o -6 precisa
+  // conseguir ler, na mesma linha, por que são 6 e sobre o que.
+  adicionar(
+    componente(
+      'JANELAS_RESIDUAIS',
+      `${indicadores.janelasResiduaisDescobertas} credencial(is) com janela residual acima do ` +
+        `teto do recurso` +
+        (indicadores.credenciaisSemCaminhoDeVolta > 0
+          ? `, ${indicadores.credenciaisSemCaminhoDeVolta} dela(s) sem caminho de revogação nenhum`
+          : ''),
+      pesos.janelaResidualDescoberta * indicadores.pesoDeJanelasResiduais,
+      TETOS_PADRAO.janelasResiduais,
+      indicadores.janelasResiduaisDescobertas,
+      evidencias.janelasResiduais ?? []
+    )
+  );
+  adicionar(
+    componente(
+      'VINCULOS_SEMANTICOS',
+      `${indicadores.vinculosNaoVerificados + indicadores.vinculosDivergentes} endpoint(s) ` +
+        'comandado(s) sem correspondência verificada entre o canal e o recurso' +
+        (indicadores.vinculosDivergentes > 0
+          ? ` — ${indicadores.vinculosDivergentes} com conferência que NÃO bateu`
+          : ''),
+      pesos.vinculoSemanticoNaoVerificado *
+        (indicadores.vinculosNaoVerificados + indicadores.vinculosDivergentes * 1.5),
+      TETOS_PADRAO.vinculosSemanticos,
+      indicadores.vinculosNaoVerificados + indicadores.vinculosDivergentes,
+      evidencias.vinculosSemanticos ?? []
+    )
+  );
+  adicionar(
+    componente(
+      'INCIDENTES_SEM_AUTORIDADE',
+      `${indicadores.incidentesSemAutoridade} incidente(s) físico(s) em aberto sem ninguém ` +
+        'encaminhado: o fato está acontecendo e não há quem responda por ele',
+      pesos.incidenteSemAutoridade * indicadores.pesoDeIncidentesSemAutoridade,
+      TETOS_PADRAO.incidentesSemAutoridade,
+      indicadores.incidentesSemAutoridade,
+      evidencias.incidentesSemAutoridade ?? []
+    )
+  );
+
   const penalidadeTotal = componentes.reduce((soma, item) => soma + item.penalidade, 0);
   const score = Math.max(0, Math.min(100, arredondar(100 - penalidadeTotal)));
 
@@ -353,6 +433,10 @@ export function calcularHealth(
     anomalousLatencyCount: indicadores.anomalousLatencyCount,
     pendingBreakGlassReviews: indicadores.revisoesDeEmergenciaPendentes,
     recurringBreakGlass: indicadores.repeticoesDeEmergencia,
+    uncoveredResidualWindows: indicadores.janelasResiduaisDescobertas,
+    unverifiedSemanticBindings:
+      indicadores.vinculosNaoVerificados + indicadores.vinculosDivergentes,
+    physicalIncidentsWithoutAuthority: indicadores.incidentesSemAutoridade,
     calculatedAt: escopo.calculatedAt,
     components: componentes
   };

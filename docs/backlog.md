@@ -128,3 +128,23 @@
 
 A sequência evita construir Sentinel sobre telemetria ainda simulada ou conceder
 sessões dinâmicas sobre persistência volátil.
+
+## Nascidas do consolidado de 4 a 10/10/2026, depois de implementado
+
+> Os sete deltas foram incorporados em 11/10/2026 (ADR-0028 a ADR-0033, matriz
+> em `docs/research/matriz-d051-d057.md`). O que segue é a dívida que a
+> implementação CONTRAIU, declarada no mesmo dia — que é como este repositório
+> paga dívida que ainda vai existir.
+
+| # | Item | O que falta, e o que a falta custa |
+|---|---|---|
+| 33 | **Levantamento de caminho por endpoint** | sem ele `avaliarExposicao` devolve `NAO_AVALIADA` para tudo, e a leitura mais útil do D-051 fica muda. Não é software: é um levantamento de campo com data e nome, por porta |
+| 34 | **Conferência canal–recurso em campo** | mesma natureza: o produto exige e registra a verificação, e ninguém a fez. Enquanto nenhum vínculo for `VERIFICADO`, o teto de confiança não protege nada porque não há vínculo declarado |
+| 35 | **Medir revogabilidade em bancada** | `ProcedenciaDeRevogabilidade` tem `MEDIDA_EM_BANCADA` e ninguém o usa. Hoje o portão de emissão decide sobre capacidade ANUNCIADA pelo fabricante — exatamente o que a pesquisa recomendou não tratar como integração disponível |
+| 36 | **Fila e aviso da delegação de autoridade** | uma delegação que vence no meio do plantão seguinte cai em silêncio. O produto resolveu isso uma vez para as aprovações (ADR-0016, ADR-0018) e não o resolveu aqui. Declarado no ADR-0032 como a nona aparição possível do D-022 |
+| 37 | **Isolamento de tenant por persistência com escopo** | `visibilidadeDe` diz o que o tenant PODE ver; nada impede uma consulta mal escrita de ler além. Mais uma razão para o item 1 |
+| 38 | **Calibrar os tetos de janela residual** | os quatro estão em SOMBRA. Calibrá-los exige medir o tempo real de reação de uma instalação a um crachá perdido — trabalho de piloto, não de bancada |
+| 39 | **Prazo para incidente físico assumido** | assumido e nunca encerrado, ele sai do score e fica aberto para sempre. Cobrar o resolvedor exige decidir o que é prazo aceitável, e isso é governança do hospital |
+| 40 | **Corroboração como fato registrável** | `EXIGE_CORROBORACAO` vira `REQUIRE_APPROVAL` e a fila humana resolve. "Entrou acompanhado" como fato que fica na trilha é outro trabalho |
+| 41 | **Segunda capacidade por vínculo semântico** | o ciclo consulta `REMOTE_REVOCATION`. Um endpoint cujo relé de destrava e de revogação sejam canais distintos exigiria consultar as duas, e nenhum cenário tem esse caso ainda |
+| 42 | **Federação na tela** | o painel Access Assurance não tem seção de tenant, visibilidade ou delegação; nem de pátio, veículo e ordem de serviço (D-053) |

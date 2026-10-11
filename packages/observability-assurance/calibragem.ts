@@ -134,6 +134,36 @@ export const CONSTANTES_DO_HEALTH: readonly ConstanteCalibrada<number>[] = Objec
       'o crachá ou arromba o armário, sem registro nenhum.'
   ),
   peso(
+    'janelaResidualDescoberta',
+    'Penalidade por credencial cuja janela residual excede o teto do recurso',
+    'D-055 (consolidado de 10/10/2026) — "emitir não é poder revogar"; derivado da revogação ' +
+      'pendente e posto ABAIXO dela, porque aqui ninguém pediu a revogação ainda',
+    RESSALVA_GERAL +
+      ' Os tetos de janela residual que decidem o que é "descoberto" também estão em sombra ' +
+      '(ver `governanca/emissao.ts`), e isso dobra a cautela: o número é uma leitura de dívida ' +
+      'de desenho, não uma medida de risco vivo.'
+  ),
+  peso(
+    'vinculoSemanticoNaoVerificado',
+    'Penalidade por endpoint comandado sem correspondência canal–recurso verificada',
+    'D-052 (consolidado de 10/10/2026) — "sinal não é significado"; o fabricante confirma o ' +
+      'canal, só o levantamento em campo confirma a porta',
+    RESSALVA_GERAL +
+      ' Este peso não cobra risco de porta aberta: cobra a confiabilidade da EVIDÊNCIA sobre um ' +
+      'conjunto de portas. Calibrá-lo para baixo não esverdeia um risco — apaga o incentivo de ' +
+      'alguém caminhar até a porta e conferir, que é a única coisa que resolve este achado.'
+  ),
+  peso(
+    'incidenteSemAutoridade',
+    'Penalidade por incidente físico em aberto sem ninguém encaminhado',
+    'D-056 (consolidado de 10/10/2026) — "observar não autoriza intervir"; e D-022 deste ' +
+      'repositório: a porta que ninguém chama é uma negativa silenciosa',
+    RESSALVA_GERAL +
+      ' É o único dos três pesos de outubro em que há fato acontecendo e ninguém a caminho, e ' +
+      'por isso está no mesmo patamar da revogação pendente. A direção da calibragem importa: ' +
+      'ele cobra a AUSÊNCIA de encaminhamento, nunca a existência do incidente.'
+  ),
+  peso(
     'emergenciaRecorrente',
     'Penalidade por repetição de quebra de vidro na mesma zona',
     'ADR-0025 — repetição como sintoma de modelo de acesso inadequado à zona, não como ' +

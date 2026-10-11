@@ -46,6 +46,17 @@ import {
 import { MaterialDeRevisao } from '../governanca/aprovacao';
 import { ResumoDoPlantao } from '../governanca/plantao';
 import { JANELA_DE_RECORRENCIA_DIAS } from '../governanca/emergencia';
+import {
+  AvaliacaoDeEmissao,
+  ConsultaDeRevogabilidade,
+  TetosLidos,
+  avaliarEmissao,
+  lerTetosResiduais
+} from '../governanca/emissao';
+import { ConsultaDeCaminhos, SEM_CAMINHOS_LEVANTADOS } from '../dominio/caminho';
+import { JanelaResidualProjetada } from '../dominio/revogabilidade';
+import { ConsultaDeVinculos, VinculoProjetado, projetarVinculo } from '../dominio/vinculo-semantico';
+import { ConsultaDeIncidentesFisicos } from '../dominio/incidente';
 import { EscalationCase } from '../dominio/escalonamento';
 
 /** Os dois despachos do ciclo, somados sem perder a separação das espécies. */
@@ -116,6 +127,29 @@ export interface DependenciasDoCiclo {
    * um fim de volta bem definido.
    */
   diarioDeAprovacao?: DiarioDrenavel;
+  /**
+   * O que se sabe sobre revogar, por endpoint (D-055).
+   *
+   * Ausente significa que a instalação não levantou o caminho de revogação de
+   * nenhum equipamento — e o ciclo então NÃO avalia emissão e declara a lacuna
+   * no relatório. A alternativa seria usar o pior caso por omissão
+   * (`REVOGABILIDADE_DESCONHECIDA`), e ela está errada aqui por uma razão
+   * prática: reter toda concessão de toda instalação que ainda não fez o
+   * levantamento transformaria o delta num bloqueio geral no primeiro dia, e
+   * um produto que não concede nada é desligado antes de ensinar nada.
+   *
+   * O pessimismo continua existindo onde é útil: na porta `capacidadeDe` de
+   * quem LIGOU a consulta e esqueceu um endpoint.
+   */
+  revogabilidade?: ConsultaDeRevogabilidade;
+  /** Os caminhos de acesso levantados, por endpoint (D-051). */
+  caminhos?: ConsultaDeCaminhos;
+  /** Os vínculos semânticos canal–recurso declarados (D-052). */
+  vinculosSemanticos?: ConsultaDeVinculos;
+  /** Os incidentes físicos em aberto, projetados (D-056). */
+  incidentesFisicos?: ConsultaDeIncidentesFisicos;
+  /** Tetos de janela residual, lidos pela porta de calibragem. */
+  tetosResiduais?: TetosLidos;
   /**
    * As matrizes de segregação desta instalação.
    *
@@ -208,6 +242,21 @@ export interface RelatorioDoCiclo {
    * alguma zona de cuidado sem ninguém capaz de entrar?
    */
   freio: AvaliacaoDoFreioDeAcesso;
+  /**
+   * As avaliações de emissão deste ciclo (D-051 + D-055).
+   *
+   * Vazio significa duas coisas diferentes, e `emissaoAvaliada` as separa:
+   * nenhuma concessão a materializar, ou consulta de revogabilidade não ligada.
+   * Confundir as duas faria uma instalação sem levantamento aparecer no
+   * relatório igual a uma instalação em dia.
+   */
+  emissoes: readonly AvaliacaoDeEmissao[];
+  /** A consulta de revogabilidade está ligada neste ciclo? */
+  emissaoAvaliada: boolean;
+  /** Concessões retidas por recusa estrutural de emissão. */
+  emissoesRetidas: number;
+  /** As janelas residuais projetadas que foram ao score. */
+  janelasResiduais: readonly JanelaResidualProjetada[];
   ordensEnviadas: number;
   ordensRecusadasPorIdempotencia: number;
   eventosIngeridos: number;
@@ -301,6 +350,15 @@ export class CicloDeGovernanca {
         this.deps.relogio.agora()
       ),
       janelaDeRecorrenciaMs: JANELA_DE_RECORRENCIA_DIAS * 24 * 60 * 60_000,
+      // As três leituras do consolidado de outubro. Cada uma vem de uma porta
+      // diferente e todas chegam projetadas: a emissão sai da materialização
+      // deste ciclo, o vínculo sai da consulta do host, o incidente sai da
+      // governança física. Nenhuma delas é calculada aqui.
+      janelasResiduais: materializacao.janelas,
+      vinculosSemanticos: this.vinculosProjetados(topologiaAtualizada),
+      incidentesFisicos: this.deps.incidentesFisicos?.projetarParaAssurance(
+        this.deps.relogio.agora()
+      ),
       backlogDeEventos: 0
     });
     this.deps.assuranceEngine.encerrarCasosResolvidos(resumoFisico.resultados);
@@ -346,6 +404,10 @@ export class CicloDeGovernanca {
       segregacaoAvaliada: this.deps.dominiosDeSegregacao !== undefined,
       atosDeAprovacaoRegistrados,
       freio,
+      emissoes: materializacao.emissoes,
+      emissaoAvaliada: this.deps.revogabilidade !== undefined,
+      emissoesRetidas: materializacao.retidas,
+      janelasResiduais: materializacao.janelas,
       ordensEnviadas: materializacao.enviadas,
       ordensRecusadasPorIdempotencia: materializacao.recusadas,
       eventosIngeridos: ingeridos,
@@ -386,9 +448,18 @@ export class CicloDeGovernanca {
     mundo: MundoLogico,
     acoes: readonly AcaoDeEntitlement[],
     eventosDoCiclo: EventoAssinado[]
-  ): Promise<{ enviadas: number; recusadas: number }> {
+  ): Promise<{
+    enviadas: number;
+    recusadas: number;
+    emissoes: readonly AvaliacaoDeEmissao[];
+    retidas: number;
+    janelas: readonly JanelaResidualProjetada[];
+  }> {
     let enviadas = 0;
     let recusadas = 0;
+    let retidas = 0;
+    const emissoes: AvaliacaoDeEmissao[] = [];
+    const janelas: JanelaResidualProjetada[] = [];
     const endpointsPorId = new Map(mundo.topologia.endpoints.map((e) => [e.id, e]));
 
     for (const acao of acoes) {
@@ -399,6 +470,69 @@ export class CicloDeGovernanca {
       const registro = this.registroPara(acao, mundo);
       const tipo = acao.tipo === 'REVOKE' ? 'REVOKE' : acao.tipo === 'UPDATE_WINDOW' ? 'SYNC' : 'GRANT';
       const desejado = acao.tipo === 'REVOKE' ? 'ENTITLEMENT_REVOKED' : 'ENTITLEMENT_ACTIVE';
+
+      // ---- O portão de emissão (D-051 + D-055) ---------------------------
+      //
+      // Roda antes de qualquer ordem e SÓ na concessão: revogar não cria janela
+      // residual nenhuma — revogar é o que tenta fechá-la. Reavaliar na
+      // revogação seria pior que inútil: faria o produto hesitar exatamente no
+      // ato que reduz risco.
+      //
+      // E roda antes de `registrarDireito`, porque o que se retém aqui é a
+      // MATERIALIZAÇÃO, e não o direito. O direito segue existindo, decidido
+      // pela política, aprovado por quem tinha alçada; o que não acontece é a
+      // credencial. A distinção é a mesma do D-054, um degrau acima: ter
+      // direito não é ter chave.
+      if (tipo === 'GRANT' && this.deps.revogabilidade) {
+        const avaliacao = avaliarEmissao(
+          {
+            endpointId: endpoint.id,
+            nomeDoEndpoint: endpoint.nome,
+            criticidade: endpoint.criticidade,
+            metodo: registro.metodo,
+            credentialId: registro.credentialId,
+            emitidaEm: this.deps.relogio.agora(),
+            capacidade: this.deps.revogabilidade.capacidadeDe(endpoint.id),
+            caminho: (this.deps.caminhos ?? SEM_CAMINHOS_LEVANTADOS).caminhoDe(endpoint.id)
+          },
+          this.deps.tetosResiduais ?? lerTetosResiduais()
+        );
+        emissoes.push(avaliacao);
+        janelas.push({
+          credentialId: registro.credentialId,
+          endpointId: endpoint.id,
+          modo: avaliacao.perfil.modo,
+          minutos: avaliacao.janelaResidual.minutos,
+          excedeuTeto: avaliacao.excedeuTeto
+        });
+        eventosDoCiclo.push({
+          autor: 'entitlement-reconciliation',
+          evento: this.evento('CredentialIssuanceEvaluated', mundo, {
+            endpointId: endpoint.id,
+            personId: acao.personId,
+            credentialId: registro.credentialId,
+            correlationId: correlacaoDeCredencial(registro.credentialId, endpoint.id),
+            idempotencyKey: `EMISSAO::${registro.credentialId}::${avaliacao.veredito}::${avaliacao.perfil.modo}`,
+            resumo: `Emissão avaliada: ${avaliacao.veredito}. ${avaliacao.explicacao}`
+          })
+        });
+        if (avaliacao.veredito === 'RECUSA') {
+          retidas += 1;
+          eventosDoCiclo.push({
+            autor: 'entitlement-reconciliation',
+            evento: this.evento('CredentialIssuanceWithheld', mundo, {
+              endpointId: endpoint.id,
+              personId: acao.personId,
+              credentialId: registro.credentialId,
+              correlationId: correlacaoDeCredencial(registro.credentialId, endpoint.id),
+              decisionOrigin: 'COLMEIA_POLICY_ENGINE',
+              idempotencyKey: `EMISSAO-RETIDA::${registro.credentialId}::${avaliacao.perfil.modo}`,
+              resumo: `Emissão retida. ${avaliacao.explicacao}`
+            })
+          });
+          continue;
+        }
+      }
 
       // Nada muda? Nada é enviado. É a propriedade que torna o ciclo seguro
       // para rodar a cada minuto.
@@ -565,7 +699,7 @@ export class CicloDeGovernanca {
       });
     }
 
-    return { enviadas, recusadas };
+    return { enviadas, recusadas, emissoes, retidas, janelas };
   }
 
   private estadoDoProvedor(status: string, tipo: string): AccessState['providerState'] {
@@ -785,6 +919,26 @@ export class CicloDeGovernanca {
 
   // --- 4. Reconciliação física ---------------------------------------------
 
+  /**
+   * Os vínculos semânticos de TODOS os endpoints da topologia, projetados.
+   *
+   * Varre a topologia, e não apenas os endpoints com registro de acesso, por
+   * uma razão que é a própria do indicador: o endpoint sem credencial nenhuma
+   * continua sendo um endpoint cuja correspondência com o canal ninguém
+   * conferiu, e ele é exatamente o que ninguém vai conferir se não aparecer no
+   * número.
+   */
+  private vinculosProjetados(topologia: Topologia): readonly VinculoProjetado[] {
+    const consulta = this.deps.vinculosSemanticos;
+    if (!consulta) return [];
+    return topologia.endpoints.map((endpoint) =>
+      projetarVinculo(
+        consulta.vinculoDe(endpoint.id, 'REMOTE_REVOCATION'),
+        consulta.versaoCorrente(endpoint.id)
+      )
+    );
+  }
+
   private async montarEntradasFisicas(mundo: MundoLogico): Promise<{
     entradas: readonly EntradaDeReconciliacaoFisica[];
     conectividade: ReadonlyMap<string, StatusDeConectividade>;
@@ -823,7 +977,22 @@ export class CicloDeGovernanca {
           mundo.topologia.conexoes.find((c) => c.id === endpoint.providerConnectionId)?.status ?? 'UNKNOWN',
         saudeDoEquipamento: status?.health,
         tentativas: registro.tentativas,
-        divergenciaDetectadaEm: registro.divergenciaDetectadaEm
+        divergenciaDetectadaEm: registro.divergenciaDetectadaEm,
+        // D-052: o estado do vínculo entra JÁ REAVALIADO contra a versão
+        // corrente da configuração. Passar o estado gravado faria o motor
+        // tratar como verificada uma conferência que envelheceu quando alguém
+        // remexeu o painel — que é exatamente o caso que o delta nomeia.
+        //
+        // A capacidade escolhida é REMOTE_REVOCATION, e a escolha merece
+        // justificativa: é ela que o ciclo comanda quando o risco é de porta
+        // aberta, e é sobre esse comando que a pergunta "chegou à porta certa?"
+        // tem consequência.
+        vinculoSemantico: this.deps.vinculosSemanticos
+          ? projetarVinculo(
+              this.deps.vinculosSemanticos.vinculoDe(endpoint.id, 'REMOTE_REVOCATION'),
+              this.deps.vinculosSemanticos.versaoCorrente(endpoint.id)
+            ).estado
+          : undefined
       });
     }
 

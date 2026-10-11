@@ -5,3 +5,6 @@ export * from './plantao';
 export * from './responsabilidade';
 export * from './competencia';
 export * from './emergencia';
+export * from './emissao';
+export * from './federacao';
+export * from './intervencao';

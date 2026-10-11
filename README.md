@@ -109,7 +109,7 @@ mundo físico atravessa a guarda de honestidade antes de chegar a uma pessoa.
 
 ```bash
 npm install
-npm run verificar    # pureza + lint amplo + lint de estado + espelho + 756 verificações
+npm run verificar    # pureza + lint amplo + lint de estado + espelho + 920 verificações
 npm run painel       # gera .saida/painel-access-assurance.html
 ```
 
